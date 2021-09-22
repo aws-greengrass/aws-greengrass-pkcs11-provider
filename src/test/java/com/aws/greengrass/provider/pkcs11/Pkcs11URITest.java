@@ -15,9 +15,11 @@ class Pkcs11URITest {
 
     @Test
     void GIVEN_expected_pkcs11_key_uri_WHEN_create_object_THEN_return_proper_attributes() throws Exception {
-        Pkcs11URI uri = new Pkcs11URI("pkcs11:object=private-key;type=private");
+        String uriStr = "pkcs11:object=private-key;type=private";
+        Pkcs11URI uri = new Pkcs11URI(uriStr);
         assertThat(uri.getLabel(), Is.is("private-key"));
         assertThat(uri.getType(), Is.is("private"));
+        assertThat(uri.toString(), Is.is(uriStr));
     }
 
     @Test

@@ -1,5 +1,9 @@
-package com.aws.greengrass.provider.pkcs11;
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
+package com.aws.greengrass.provider.pkcs11;
 
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
 import org.hamcrest.core.Is;
@@ -18,6 +22,6 @@ class PKCS11CryptoKeyServiceTest {
 
     @Test
     void placeholder_test_to_be_replaced() throws Exception {
-        assertThat(service.getKeyManagers("key").length, Is.is(0));
+        assertThat(service.getKeyManagers("key", "cert").length, Is.is(0));
     }
 }

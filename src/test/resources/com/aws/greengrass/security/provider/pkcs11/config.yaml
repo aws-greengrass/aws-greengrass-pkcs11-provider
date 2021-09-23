@@ -1,9 +1,6 @@
 ---
 services:
   main:
-    lifecycle:
-      install:
-        all: echo All installed
     dependencies:
       - aws.greengrass.pkcs11.provider
 

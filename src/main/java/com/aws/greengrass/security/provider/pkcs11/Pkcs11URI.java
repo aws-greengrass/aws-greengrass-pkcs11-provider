@@ -5,8 +5,6 @@
 
 package com.aws.greengrass.security.provider.pkcs11;
 
-import com.aws.greengrass.config.CaseInsensitiveString;
-
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
@@ -37,8 +35,7 @@ public class Pkcs11URI {
      */
     public Pkcs11URI(URI uri) {
         this.uri = uri;
-        if (this.uri.getScheme() == null || !new CaseInsensitiveString(PKCS11_SCHEME)
-                .equals(new CaseInsensitiveString(this.uri.getScheme()))) {
+        if (!PKCS11_SCHEME.equalsIgnoreCase(this.uri.getScheme())) {
             throw new IllegalArgumentException(String.format("URI scheme part is not %s", PKCS11_SCHEME));
         }
         parseAttributes(this.uri.getSchemeSpecificPart());

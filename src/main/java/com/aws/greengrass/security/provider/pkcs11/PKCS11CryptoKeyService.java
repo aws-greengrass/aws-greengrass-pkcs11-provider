@@ -134,9 +134,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private synchronized void initializePkcs11Provider() {
-        String configuration =
-                String.format("%s = %s\n%s = %s\n%s = %d", NAME_TOPIC, name, LIBRARY_TOPIC, libraryPath, SLOT_ID_TOPIC,
-                        slotId);
+        String configuration = buildConfiguration();
         logger.atInfo().kv("configuration", configuration).log("Initialize pkcs11 provider with configuration");
         Provider newProvider;
         try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
@@ -156,6 +154,16 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         } else {
             pkcs11Provider = newProvider;
         }
+    }
+
+    private String buildConfiguration() {
+        return new StringBuilder()
+                .append(NAME_TOPIC + "=" + name)
+                .append(System.lineSeparator())
+                .append(LIBRARY_TOPIC + "=" + libraryPath)
+                .append(System.lineSeparator())
+                .append(SLOT_ID_TOPIC + "=" + slotId)
+                .toString();
     }
 
     @Override

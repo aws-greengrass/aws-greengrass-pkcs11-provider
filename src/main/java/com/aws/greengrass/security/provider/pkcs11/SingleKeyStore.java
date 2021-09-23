@@ -1,4 +1,4 @@
-package com.aws.greengrass.provider.pkcs11;
+package com.aws.greengrass.security.provider.pkcs11;
 
 import sun.security.jca.GetInstance;
 
@@ -20,30 +20,22 @@ import java.util.Enumeration;
 
 @SuppressWarnings("PMD.DontImportSun")
 class SingleKeyStore extends KeyStore {
-    private static final String PKCS11_TYPE = "PKCS11";
 
-    /**
-     * Creates a KeyStore object of the given type, and encapsulates the given provider implementation (SPI object) in
-     * it.
-     *
-     * @param keyStoreSpi the provider implementation.
-     * @param provider    the provider.
-     * @param type        the keystore type.
-     */
-    SingleKeyStore(KeyStoreSpi keyStoreSpi, Provider provider, String type) {
+    private SingleKeyStore(KeyStoreSpi keyStoreSpi, Provider provider, String type) {
         super(keyStoreSpi, provider, type);
     }
 
     @SuppressWarnings("PMD.SingletonClassReturningNewInstance")
-    static KeyStore getInstance(Provider provider, String keyLabel) throws NoSuchAlgorithmException {
+    static KeyStore getInstance(Provider provider, String type, String keyLabel) throws NoSuchAlgorithmException {
         if (provider == null) {
             throw new IllegalArgumentException("Provider can't be null");
         }
-        GetInstance.Instance instance = GetInstance.getInstance("KeyStore", KeyStoreSpi.class, PKCS11_TYPE, provider);
+        GetInstance.Instance instance = GetInstance.getInstance("KeyStore", KeyStoreSpi.class, type, provider);
         KeyStoreSpi keyStoreSpi = new SingleKeyStoreDecorator((KeyStoreSpi) instance.impl, keyLabel);
-        return new SingleKeyStore(keyStoreSpi, instance.provider, PKCS11_TYPE);
+        return new SingleKeyStore(keyStoreSpi, instance.provider, type);
     }
 
+    // wrap around key store to at most have one specific key
     static class SingleKeyStoreDecorator extends KeyStoreSpi {
 
         private final String keyLabel;
@@ -120,7 +112,10 @@ class SingleKeyStore extends KeyStore {
 
         @Override
         public boolean engineContainsAlias(String alias) {
-            return keyStoreSpi.engineContainsAlias(alias);
+            if (!keyLabel.equals(alias)) {
+                return false;
+            }
+            return keyStoreSpi.engineContainsAlias(keyLabel);
         }
 
         @Override

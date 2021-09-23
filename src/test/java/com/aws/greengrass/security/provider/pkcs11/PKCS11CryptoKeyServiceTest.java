@@ -1,0 +1,248 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+package com.aws.greengrass.security.provider.pkcs11;
+
+
+import com.aws.greengrass.componentmanager.KernelConfigResolver;
+import com.aws.greengrass.dependency.State;
+import com.aws.greengrass.lifecyclemanager.Kernel;
+import com.aws.greengrass.security.SecurityService;
+import com.aws.greengrass.security.exceptions.KeyLoadingException;
+import com.aws.greengrass.security.exceptions.ServiceProviderConflictException;
+import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
+import com.aws.greengrass.testcommons.testutilities.GGExtension;
+import org.hamcrest.core.Is;
+import org.hamcrest.core.IsNull;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import sun.security.pkcs11.wrapper.PKCS11;
+import sun.security.pkcs11.wrapper.PKCS11Constants;
+import sun.security.pkcs11.wrapper.PKCS11Exception;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.security.Provider;
+import java.security.Security;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.X509KeyManager;
+
+import static com.aws.greengrass.testcommons.testutilities.ExceptionLogProtector.ignoreExceptionUltimateCauseOfType;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+@ExtendWith({MockitoExtension.class, GGExtension.class})
+class PKCS11CryptoKeyServiceTest {
+    private static final long TEST_TIME_OUT_SEC = 30L;
+
+    private Kernel kernel;
+
+    @TempDir
+    Path rootDir;
+
+    @Mock
+    private SecurityService securityService;
+
+    @BeforeEach
+    void beforeEach() {
+        kernel = new Kernel();
+        kernel.getContext().put(SecurityService.class, securityService);
+    }
+
+    @AfterEach
+    void afterEach() {
+        kernel.shutdown();
+    }
+
+    @AfterAll
+    static void afterAll() {
+        try {
+            PKCS11 pkcs11 =
+                    PKCS11.getInstance("/usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so", null, null, true);
+            pkcs11.C_Finalize(PKCS11Constants.NULL_PTR);
+        } catch (PKCS11Exception | IOException e) {
+            //ignore
+        }
+    }
+
+    private void startNucleusWithConfig(String configFile) throws InterruptedException {
+        startNucleusWithConfig(configFile, State.RUNNING);
+    }
+
+    private void startNucleusWithConfig(String configFile, State expectedState) throws InterruptedException {
+        CountDownLatch serviceRunning = new CountDownLatch(1);
+        kernel.parseArgs("-r", rootDir.toAbsolutePath().toString(), "-i",
+                getClass().getResource(configFile).toString());
+        kernel.getContext().addGlobalStateChangeListener((service, was, newState) -> {
+            if (PKCS11CryptoKeyService.PKCS11_SERVICE_NAME.equals(service.getName()) && service.getState()
+                    .equals(expectedState)) {
+                serviceRunning.countDown();
+            }
+        });
+        kernel.launch();
+        assertThat(serviceRunning.await(TEST_TIME_OUT_SEC, TimeUnit.SECONDS), Is.is(true));
+    }
+
+    @Test
+    void GIVEN_security_service_register_provider_error_WHEN_install_service_THEN_service_error_state(
+            ExtensionContext context) throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, ServiceProviderConflictException.class);
+
+        doThrow(ServiceProviderConflictException.class).when(securityService).registerCryptoKeyProvider(any());
+        startNucleusWithConfig("config.yaml", State.ERRORED);
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        verify(securityService, atLeastOnce()).registerCryptoKeyProvider(service);
+    }
+
+    @Test
+    void GIVEN_bad_configuration_WHEN_install_service_THEN_service_error_state_because_cannot_initialize_pkcs11_provider(
+            ExtensionContext context) throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
+
+        startNucleusWithConfig("badConfig.yaml", State.ERRORED);
+        verify(securityService, never()).registerCryptoKeyProvider(any());
+    }
+
+    @Test
+    void GIVEN_valid_config_WHEN_install_service_THEN_succeed() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        verify(securityService).registerCryptoKeyProvider(service);
+        Provider p = service.getPkcs11Provider();
+        assertThat(Security.getProvider(p.getName()), Is.is(p));
+    }
+
+    @Test
+    void GIVEN_service_up_running_WHEN_update_configuration_THEN_provider_updated() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Provider p1 = service.getPkcs11Provider();
+        assertThat(Security.getProvider(p1.getName()), Is.is(p1));
+
+        kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME).getConfig()
+                .find(KernelConfigResolver.CONFIGURATION_CONFIG_KEY, PKCS11CryptoKeyService.NAME_TOPIC)
+                .withValue("foo-bar");
+        // Block until subscriber has finished updating
+        kernel.getContext().waitForPublishQueueToClear();
+
+        Provider p2 = service.getPkcs11Provider();
+        assertThat(Security.getProvider(p1.getName()), IsNull.nullValue());
+        assertThat(Security.getProvider(p2.getName()), Is.is(p2));
+    }
+
+    @Test
+    void GIVEN_service_in_error_WHEN_get_key_managers_THEN_throw_unavailable_exception(ExtensionContext context)
+            throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
+
+        startNucleusWithConfig("badConfig.yaml", State.ERRORED);
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        assertThrows(ServiceUnavailableException.class, () -> service.getKeyManagers("keyUri", "certUri"));
+    }
+
+    @Test
+    void GIVEN_illegal_key_uri_scheme_WHEN_get_key_managers_THEN_throw_exception(ExtensionContext context)
+            throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, IllegalArgumentException.class);
+
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("file:///path/to/file", "certUri"));
+        assertThat(e.getMessage(), containsString("Invalid private key URI"));
+    }
+
+    @Test
+    void GIVEN_key_uri_empty_label_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e =
+                assertThrows(KeyLoadingException.class, () -> service.getKeyManagers("pkcs11:type=private", "certUri"));
+        assertThat(e.getMessage(), containsString("Empty key label"));
+    }
+
+    @Test
+    void GIVEN_key_uri_empty_type_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("pkcs11:object=foo-bar", "certUri"));
+        assertThat(e.getMessage(), containsString("Wrong key type"));
+    }
+
+    @Test
+    void GIVEN_cert_uri_empty_type_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo-bar"));
+        assertThat(e.getMessage(), containsString("Wrong cert type"));
+    }
+
+    @Test
+    void GIVEN_cert_uri_different_label_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo;type=cert"));
+        assertThat(e.getMessage(), containsString("Different key and cert labels"));
+    }
+
+    @Test
+    void GIVEN_cert_uri_invalid_scheme_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs:object=foo;type=cert"));
+        assertThat(e.getMessage(), containsString("Cert URI not supported"));
+    }
+
+    @Test
+    void GIVEN_valid_pkcs11_uri_WHEN_get_key_managers_THEN_succeed() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        KeyManager[] keyManagers =
+                service.getKeyManagers("pkcs11:object=iotkey;type=private", "pkcs11:object=iotkey;type=cert");
+        assertThat(keyManagers.length, Is.is(1));
+        assertThat(((X509KeyManager) keyManagers[0]).getPrivateKey("iotkey"), IsNull.notNullValue());
+    }
+
+    @Test
+    void GIVEN_not_existed_key_WHEN_get_key_managers_THEN_return_empty_key_manager() throws Exception {
+        startNucleusWithConfig("config.yaml");
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo-bar;type=cert"));
+        assertThat(e.getMessage(), containsString("Key not existed"));
+    }
+}

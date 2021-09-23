@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package com.aws.greengrass.provider.pkcs11;
+package com.aws.greengrass.security.provider.pkcs11;
 
 import com.aws.greengrass.config.CaseInsensitiveString;
 import com.aws.greengrass.config.Topic;
@@ -39,6 +39,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.inject.Inject;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 
@@ -48,15 +49,17 @@ import static com.aws.greengrass.componentmanager.KernelConfigResolver.CONFIGURA
 public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySpi {
     private static final Logger logger = LogManager.getLogger(PKCS11CryptoKeyService.class);
     public static final String PKCS11_SERVICE_NAME = "aws.greengrass.pkcs11.provider";
+    public static final String NAME_TOPIC = "name";
+    public static final String LIBRARY_TOPIC = "library";
+    public static final String SLOT_ID_TOPIC = "slot";
+    public static final String USER_PIN_TOPIC = "userPin";
+
+    private static final String PKCS11_TYPE = "PKCS11";
     private static final String PRIVATE_KEY_URI = "privateKeyUri";
     private static final String CERT_URI = "certificateUri";
     private static final String FILE_SCHEME = "file";
     private static final String PKCS11_TYPE_PRIVATE = "private";
     private static final String PKCS11_TYPE_CERT = "cert";
-    private static final String NAME_TOPIC = "name";
-    private static final String LIBRARY_TOPIC = "library";
-    private static final String SLOT_ID_TOPIC = "slotId";
-    private static final String USER_PIN_TOPIC = "userPin";
 
     private final SecurityService securityService;
 
@@ -73,6 +76,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         return pkcs11Provider;
     }
 
+    @Inject
     public PKCS11CryptoKeyService(Topics topics, SecurityService securityService) {
         super(topics);
         this.securityService = securityService;
@@ -86,13 +90,21 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
         this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
         initializePkcs11Provider();
+    }
+
+    @Override
+    protected void startup() throws InterruptedException {
         try {
             securityService.registerCryptoKeyProvider(this);
         } catch (ServiceProviderConflictException e) {
             logger.atError().setCause(e).log("Can't register pkcs11 crypto key service");
             serviceErrored(e);
+            return;
         }
+
+        super.startup();
     }
+
 
     private void updateName(WhatHappened what, Topic topic) {
         this.name = Coerce.toString(topic);
@@ -135,13 +147,14 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             return;
         }
 
-        if (this.pkcs11Provider != null) {
-            Security.removeProvider(this.pkcs11Provider.getName());
+        if (pkcs11Provider != null) {
+            Security.removeProvider(pkcs11Provider.getName());
         }
-        this.pkcs11Provider = newProvider;
-        if (Security.addProvider(this.pkcs11Provider) == -1) {
+        if (Security.addProvider(newProvider) == -1) {
             logger.atError().log("Pkcs11 provider is not added to JCA provider list");
             serviceErrored("Can't add pkcs11 provider");
+        } else {
+            pkcs11Provider = newProvider;
         }
     }
 
@@ -149,6 +162,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     protected void shutdown() throws InterruptedException {
         super.shutdown();
         securityService.deregisterCryptoKeyProvider(this);
+        if (pkcs11Provider != null) {
+            Security.removeProvider(pkcs11Provider.getName());
+        }
     }
 
     @Override
@@ -171,8 +187,12 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         String keyLabel = keyUri.getLabel();
         char[] password = userPin.get();
         try {
-            KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), keyLabel);
+            KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), PKCS11_TYPE, keyLabel);
             ks.load(null, password);
+            if (!ks.containsAlias(keyLabel)) {
+                logger.atError().kv("keyLabel", keyLabel).log("No specific key in key store");
+                throw new KeyLoadingException("Key not existed");
+            }
             if (isUriTypeOf(certUri, FILE_SCHEME)) {
                 List<X509Certificate> certChain = EncryptionUtils.loadX509Certificates(Paths.get(certificateUri));
                 ks.setKeyEntry(keyLabel, ks.getKey(keyLabel, password), password,

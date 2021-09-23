@@ -1,4 +1,4 @@
-package com.aws.greengrass.provider.pkcs11;
+package com.aws.greengrass.security.provider.pkcs11;
 
 
 import com.aws.greengrass.testcommons.testutilities.GGExtension;

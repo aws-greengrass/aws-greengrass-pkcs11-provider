@@ -1,7 +1,6 @@
-package com.aws.greengrass.provider.pkcs11;
+package com.aws.greengrass.security.provider.pkcs11;
 
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
-import org.hamcrest.collection.IsArray;
 import org.hamcrest.collection.IsIterableContainingInOrder;
 import org.hamcrest.core.Is;
 import org.hamcrest.core.IsNull;
@@ -11,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.InputStream;
 import java.security.Key;
 import java.security.KeyStoreSpi;
 import java.security.cert.Certificate;
@@ -94,5 +94,30 @@ class SingleKeyStoreTest {
         assertThat(aliasList, IsIterableContainingInOrder.contains(ALIAS));
     }
 
-    
+    @Test
+    void GIVEN_beneath_key_store_not_contain_alias_WHEN_aliases_THEN_return_empty() {
+        when(keyStoreSpi.engineContainsAlias(ALIAS)).thenReturn(false);
+        assertThat(keyStore.engineAliases().hasMoreElements(), Is.is(false));
+    }
+
+    @Test
+    @SuppressWarnings("PMD.CloseResource")
+    void GIVEN_input_stream_and_password_WHEN_load_THEN_delegate() throws Exception {
+        InputStream stream = mock(InputStream.class);
+        char[] password = new char[0];
+        keyStore.engineLoad(stream, password);
+        verify(keyStoreSpi).engineLoad(stream, password);
+    }
+
+    @Test
+    void GIVEN_matched_alias_WHEN_is_key_entry_THEN_delegate() {
+        when(keyStoreSpi.engineIsKeyEntry(ALIAS)).thenReturn(true);
+        assertThat(keyStore.engineIsKeyEntry(ALIAS), Is.is(true));
+    }
+
+    @Test
+    void GIVEN_unmatched_alias_WHEN_is_key_entry_THEN_return_false() {
+        assertThat(keyStore.engineIsKeyEntry("foo"), Is.is(false));
+        verify(keyStoreSpi, never()).engineIsKeyEntry(anyString());
+    }
 }

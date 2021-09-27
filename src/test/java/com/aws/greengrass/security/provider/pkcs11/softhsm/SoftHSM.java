@@ -166,12 +166,7 @@ public class SoftHSM {
     }
 
     private String buildConfiguration(HSMToken hsmToken) {
-        return new StringBuilder()
-                .append("name=" + hsmToken.getName())
-                .append(System.lineSeparator())
-                .append("library=" + sharedLibraryPath.toString())
-                .append(System.lineSeparator())
-                .append("slot=" + hsmToken.getSlotId())
-                .toString();
+        return "name=" + hsmToken.getName() + System.lineSeparator() + "library=" + sharedLibraryPath.toString()
+                + System.lineSeparator() + "slot=" + hsmToken.getSlotId();
     }
 }

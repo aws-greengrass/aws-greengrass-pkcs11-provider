@@ -191,9 +191,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private String buildConfiguration() {
-        return new StringBuilder().append(NAME_TOPIC + "=" + name).append(System.lineSeparator())
-                .append(LIBRARY_TOPIC + "=" + libraryPath).append(System.lineSeparator())
-                .append(SLOT_ID_TOPIC + "=" + slotId).toString();
+        return NAME_TOPIC + "=" + name + System.lineSeparator() + LIBRARY_TOPIC + "=" + libraryPath + System
+                .lineSeparator() + SLOT_ID_TOPIC + "=" + slotId;
     }
 
     @Override

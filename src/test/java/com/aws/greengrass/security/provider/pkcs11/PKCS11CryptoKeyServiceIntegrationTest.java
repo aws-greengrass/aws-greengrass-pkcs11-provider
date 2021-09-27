@@ -101,8 +101,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     static void afterAll() throws Exception {
         hsm.cleanUpTokens();
         try {
-            PKCS11 pkcs11 =
-                    PKCS11.getInstance("/usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so", null, null, true);
+            PKCS11 pkcs11 = PKCS11.getInstance(hsm.getSharedLibraryPath().toString(), null, null, true);
             pkcs11.C_Finalize(PKCS11Constants.NULL_PTR);
         } catch (PKCS11Exception | IOException e) {
             //ignore
@@ -151,14 +150,14 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         verify(securityService, atLeastOnce()).registerCryptoKeyProvider(service);
     }
 
-        @Test
-        void GIVEN_bad_configuration_WHEN_install_service_THEN_service_error_state_because_cannot_initialize_pkcs11_provider(
-                ExtensionContext context) throws Exception {
-            ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
+    @Test
+    void GIVEN_bad_configuration_WHEN_install_service_THEN_service_error_state_because_cannot_initialize_pkcs11_provider(
+            ExtensionContext context) throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
 
-            startService(false, State.ERRORED);
-            verify(securityService, never()).registerCryptoKeyProvider(any());
-        }
+        startService(false, State.ERRORED);
+        verify(securityService, never()).registerCryptoKeyProvider(any());
+    }
 
     @Test
     void GIVEN_valid_config_WHEN_install_service_THEN_succeed() throws Exception {
@@ -179,8 +178,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         assertThat(Security.getProvider(p1.getName()), Is.is(p1));
 
         kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME).getConfig()
-                .find(CONFIGURATION_CONFIG_KEY, PKCS11CryptoKeyService.NAME_TOPIC)
-                .withValue("foo-bar");
+                .find(CONFIGURATION_CONFIG_KEY, PKCS11CryptoKeyService.NAME_TOPIC).withValue("foo-bar");
         // Block until subscriber has finished updating
         kernel.getContext().waitForPublishQueueToClear();
 
@@ -189,16 +187,16 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         assertThat(Security.getProvider(p2.getName()), Is.is(p2));
     }
 
-        @Test
-        void GIVEN_service_in_error_WHEN_get_key_managers_THEN_throw_unavailable_exception(ExtensionContext context)
-                throws Exception {
-            ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
+    @Test
+    void GIVEN_service_in_error_WHEN_get_key_managers_THEN_throw_unavailable_exception(ExtensionContext context)
+            throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
 
-            startService(false, State.ERRORED);
-            PKCS11CryptoKeyService service =
-                    (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-            assertThrows(ServiceUnavailableException.class, () -> service.getKeyManagers("keyUri", "certUri"));
-        }
+        startService(false, State.ERRORED);
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        assertThrows(ServiceUnavailableException.class, () -> service.getKeyManagers("keyUri", "certUri"));
+    }
 
     @Test
     void GIVEN_illegal_key_uri_scheme_WHEN_get_key_managers_THEN_throw_exception(ExtensionContext context)

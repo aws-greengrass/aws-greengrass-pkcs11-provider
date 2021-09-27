@@ -23,6 +23,9 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
 
+/**
+ * The single key keystore which masks off the other keys in the underneath keystore.
+ */
 @SuppressWarnings("PMD.DontImportSun")
 class SingleKeyStore extends KeyStore {
 
@@ -40,7 +43,10 @@ class SingleKeyStore extends KeyStore {
         return new SingleKeyStore(keyStoreSpi, instance.provider, type);
     }
 
-    // wrap around key store to at most have one specific key
+    /**
+     * Wrap around key store to at most have one specific key,
+     * mask off the other keys existed in the underneath keystore.
+     */
     static class SingleKeyStoreDecorator extends KeyStoreSpi {
 
         private final String keyLabel;

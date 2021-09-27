@@ -5,11 +5,16 @@
 
 package com.aws.greengrass.security.provider.pkcs11;
 
+import lombok.NonNull;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Class to interprete PKCS11 URI.
+ */
 public class Pkcs11URI {
     public static final String PKCS11_SCHEME = "pkcs11";
     private static final String LABEL_KEY = "object";
@@ -24,7 +29,7 @@ public class Pkcs11URI {
      * @param str String used to parse pkcs11 attributes
      * @throws URISyntaxException if str is not valid URI
      */
-    public Pkcs11URI(String str) throws URISyntaxException {
+    public Pkcs11URI(@NonNull String str) throws URISyntaxException {
         this(new URI(str));
     }
 
@@ -52,11 +57,11 @@ public class Pkcs11URI {
     }
 
     public String getLabel() {
-        return attributeMap.getOrDefault(LABEL_KEY, null);
+        return attributeMap.get(LABEL_KEY);
     }
 
     public String getType() {
-        return attributeMap.getOrDefault(TYPE_KEY, null);
+        return attributeMap.get(TYPE_KEY);
     }
 
     @Override

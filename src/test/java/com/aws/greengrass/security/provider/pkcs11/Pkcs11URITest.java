@@ -11,6 +11,8 @@ import org.hamcrest.core.IsNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.net.URISyntaxException;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -43,5 +45,29 @@ class Pkcs11URITest {
     @Test
     void GIVEN_file_uri_WHEN_create_object_THEN_throw_exception() {
         assertThrows(IllegalArgumentException.class,  () -> new Pkcs11URI("file:///path/to/file"));
+    }
+
+    @Test
+    void GIVEN_null_string_WHEN_create_object_THEN_throw_exception() {
+        String str = null;
+        assertThrows(NullPointerException.class,  () -> new Pkcs11URI(str));
+    }
+
+    @Test
+    void GIVEN_empty_string_WHEN_create_object_THEN_throw_exception() {
+        assertThrows(URISyntaxException.class,  () -> new Pkcs11URI("  "));
+    }
+
+    @Test
+    void GIVEN_uri_missing_scheme_WHEN_create_object_THEN_throw_exception() {
+        assertThrows(IllegalArgumentException.class,  () -> new Pkcs11URI("object=private-key;type=private"));
+    }
+
+    @Test
+    void GIVEN_uri_missing_separator_WHEN_create_object_THEN_missing_attribute() throws Exception {
+        String uriStr = "pkcs11:object=private-keytype=private";
+        Pkcs11URI uri = new Pkcs11URI(uriStr);
+        assertThat(uri.getLabel(), Is.is("private-keytype=private"));
+        assertThat(uri.getType(), IsNull.nullValue());
     }
 }

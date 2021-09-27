@@ -5,7 +5,6 @@
 
 package com.aws.greengrass.security.provider.pkcs11;
 
-import com.aws.greengrass.config.CaseInsensitiveString;
 import com.aws.greengrass.config.Topic;
 import com.aws.greengrass.config.Topics;
 import com.aws.greengrass.config.WhatHappened;
@@ -107,63 +106,94 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
 
     private void updateName(WhatHappened what, Topic topic) {
-        this.name = Coerce.toString(topic);
-        if (what != WhatHappened.initialized) {
-            initializePkcs11Provider();
+        if (topic != null) {
+            this.name = Coerce.toString(topic);
+            if (what != WhatHappened.initialized) {
+                initializePkcs11Provider();
+            }
         }
     }
 
     private void updateLibrary(WhatHappened what, Topic topic) {
-        this.libraryPath = Coerce.toString(topic);
-        if (what != WhatHappened.initialized) {
-            initializePkcs11Provider();
+        if (topic != null) {
+            this.libraryPath = Coerce.toString(topic);
+            if (what != WhatHappened.initialized) {
+                initializePkcs11Provider();
+            }
         }
     }
 
     private void updateSlotId(WhatHappened what, Topic topic) {
-        this.slotId = Coerce.toInt(topic);
-        if (what != WhatHappened.initialized) {
-            initializePkcs11Provider();
+        if (topic != null) {
+            this.slotId = Coerce.toInt(topic);
+            if (what != WhatHappened.initialized) {
+                initializePkcs11Provider();
+            }
         }
     }
 
     @SuppressWarnings("PMD.UnusedFormalParameter")
     private void updateUserPin(WhatHappened what, Topic topic) {
-        String userPinStr = Coerce.toString(topic);
-        this.userPin.set(userPinStr == null ? null : userPinStr.toCharArray());
+        if (topic != null) {
+            String userPinStr = Coerce.toString(topic);
+            this.userPin.set(userPinStr == null ? null : userPinStr.toCharArray());
+        }
     }
 
     private synchronized void initializePkcs11Provider() {
-        String configuration = buildConfiguration();
-        logger.atInfo().kv("configuration", configuration).log("Initialize pkcs11 provider with configuration");
-        Provider newProvider;
-        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
-            newProvider = new SunPKCS11(configStream);
-        } catch (ProviderException | IOException e) {
-            logger.atError().setCause(e).kv("configuration", configuration).log("Failed to initialize pkcs11 provider");
-            serviceErrored(e);
-            return;
-        }
-
-        if (pkcs11Provider != null) {
-            Security.removeProvider(pkcs11Provider.getName());
-        }
-        if (Security.addProvider(newProvider) == -1) {
-            logger.atError().log("Pkcs11 provider is not added to JCA provider list");
-            serviceErrored("Can't add pkcs11 provider");
-        } else {
-            pkcs11Provider = newProvider;
+        Provider newProvider = createNewProvider();
+        if (newProvider != null && removeProviderFromJCA()) {
+            if (addProviderToJCA(newProvider)) {
+                this.pkcs11Provider = newProvider;
+            } else {
+                serviceErrored("Can't add pkcs11 provider to JCA");
+            }
         }
     }
 
+    private Provider createNewProvider() {
+        String configuration = buildConfiguration();
+        logger.atInfo().kv("configuration", configuration).log("Initialize pkcs11 provider with configuration");
+        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
+            return new SunPKCS11(configStream);
+        } catch (ProviderException | IOException e) {
+            logger.atError().setCause(e).kv("configuration", configuration).log("Failed to initialize pkcs11 provider");
+            serviceErrored(e);
+            return null;
+        }
+    }
+
+    private boolean removeProviderFromJCA() {
+        if (pkcs11Provider != null) {
+            try {
+                Security.removeProvider(pkcs11Provider.getName());
+            } catch (SecurityException e) {
+                logger.atError().setCause(e).kv("providerName", pkcs11Provider.getName())
+                        .log("Can't remove JCA provider");
+                serviceErrored("Can't remove provider from JCA");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean addProviderToJCA(Provider provider) {
+        try {
+            if (Security.addProvider(provider) == -1) {
+                logger.atError().log("Pkcs11 provider is not added to JCA provider list");
+                return false;
+            }
+        } catch (SecurityException e) {
+            logger.atError().setCause(e).kv("providerName", provider.getName()).log("Can't add PKCS11 JCA provider");
+            return false;
+        }
+        return true;
+    }
+
     private String buildConfiguration() {
-        return new StringBuilder()
-                .append(NAME_TOPIC + "=" + name)
-                .append(System.lineSeparator())
-                .append(LIBRARY_TOPIC + "=" + libraryPath)
-                .append(System.lineSeparator())
-                .append(SLOT_ID_TOPIC + "=" + slotId)
-                .toString();
+        return new StringBuilder().append(NAME_TOPIC + "=" + name).append(System.lineSeparator())
+                .append(LIBRARY_TOPIC + "=" + libraryPath).append(System.lineSeparator())
+                .append(SLOT_ID_TOPIC + "=" + slotId).toString();
     }
 
     @Override
@@ -258,7 +288,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private boolean isUriTypeOf(URI uri, String type) {
-        return new CaseInsensitiveString(type).equals(new CaseInsensitiveString(uri.getScheme()));
+        return type.equalsIgnoreCase(uri.getScheme());
     }
 
     @Override

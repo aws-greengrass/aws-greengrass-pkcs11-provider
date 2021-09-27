@@ -200,9 +200,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     protected void shutdown() throws InterruptedException {
         super.shutdown();
         securityService.deregisterCryptoKeyProvider(this);
-        if (pkcs11Provider != null) {
-            Security.removeProvider(pkcs11Provider.getName());
-        }
+        removeProviderFromJCA();
     }
 
     @Override

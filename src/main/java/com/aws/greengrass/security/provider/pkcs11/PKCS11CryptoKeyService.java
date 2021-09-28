@@ -30,6 +30,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
+import java.security.KeyPair;
 import java.security.KeyStore;
 import java.security.Provider;
 import java.security.ProviderException;
@@ -243,6 +244,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
                     .log("Exception caught during getting key manager");
             throw new KeyLoadingException("Failed to get key manager", e);
         }
+    }
+
+    @Override
+    public KeyPair getKeyPair(String s) throws ServiceUnavailableException, KeyLoadingException, URISyntaxException {
+        return null;
     }
 
     private Pkcs11URI validatePrivateKeyUri(String privateKeyUri) throws KeyLoadingException, URISyntaxException {

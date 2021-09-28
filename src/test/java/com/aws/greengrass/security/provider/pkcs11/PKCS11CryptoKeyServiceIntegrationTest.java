@@ -78,9 +78,9 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         token = hsm.initToken(
                 HSMToken.builder().name("softhsm-pkcs11").label("greengrass1").slotId(0).userPin("7526").build());
         Path certPath =
-                EncryptionUtilsTest.generateCertificateFile(2048, true, resourcePath.resolve("certificate.pem"));
-        Path privateKeyPath =
-                EncryptionUtilsTest.generatePkCS8PrivateKeyFile(2048, true, resourcePath.resolve("privateKey.pem"));
+                EncryptionUtilsTest.generateCertificateFile(2048, true, resourcePath.resolve("certificate.pem"), false);
+        Path privateKeyPath = EncryptionUtilsTest
+                .generatePkCS8PrivateKeyFile(2048, true, resourcePath.resolve("privateKey.pem"), false);
         PrivateKey privateKey = EncryptionUtils.loadPrivateKey(privateKeyPath);
         List<X509Certificate> certificateChain = EncryptionUtils.loadX509Certificates(certPath);
         hsm.importPrivateKey(privateKey, certificateChain.toArray(new Certificate[0]), "iotkey", token);

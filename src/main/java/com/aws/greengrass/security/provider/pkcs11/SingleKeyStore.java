@@ -25,6 +25,11 @@ import java.util.Enumeration;
 
 /**
  * The single key keystore which masks off the other keys in the underneath keystore.
+ * e.g. KeyStore abstraction on TPM could incorporate multiple keys which are supposed to be used in different
+ * use cases. Exposing the entire KeyStore could lead the use case picking up the key other than the desired
+ * one (e.g. JSSE SSL negotiation would enumerate the keys and certs matching the filters, use the first one works),
+ * this will cause customer losing insights of which key is actually used for the use case. Masking off the keys
+ * other than the desired one would eliminate this ambiguity.
  */
 @SuppressWarnings("PMD.DontImportSun")
 class SingleKeyStore extends KeyStore {

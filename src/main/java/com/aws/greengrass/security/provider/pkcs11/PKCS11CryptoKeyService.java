@@ -27,7 +27,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
@@ -107,7 +106,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
 
     private void updateName(WhatHappened what, Topic topic) {
-        if (topic != null) {
+        if (topic != null && what != WhatHappened.timestampUpdated) {
             this.name = Coerce.toString(topic);
             if (what != WhatHappened.initialized) {
                 initializePkcs11Provider();
@@ -116,7 +115,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private void updateLibrary(WhatHappened what, Topic topic) {
-        if (topic != null) {
+        if (topic != null && what != WhatHappened.timestampUpdated) {
             this.libraryPath = Coerce.toString(topic);
             if (what != WhatHappened.initialized) {
                 initializePkcs11Provider();
@@ -125,7 +124,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private void updateSlotId(WhatHappened what, Topic topic) {
-        if (topic != null) {
+        if (topic != null && what != WhatHappened.timestampUpdated) {
             this.slotId = Coerce.toInt(topic);
             if (what != WhatHappened.initialized) {
                 initializePkcs11Provider();
@@ -133,9 +132,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         }
     }
 
-    @SuppressWarnings("PMD.UnusedFormalParameter")
     private void updateUserPin(WhatHappened what, Topic topic) {
-        if (topic != null) {
+        if (topic != null && what != WhatHappened.timestampUpdated) {
             String userPinStr = Coerce.toString(topic);
             this.userPin.set(userPinStr == null ? null : userPinStr.toCharArray());
         }
@@ -204,16 +202,15 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     @Override
-    public KeyManager[] getKeyManagers(String privateKeyUri, String certificateUri)
-            throws ServiceUnavailableException, KeyLoadingException, URISyntaxException {
+    public KeyManager[] getKeyManagers(URI privateKeyUri, URI certificateUri)
+            throws ServiceUnavailableException, KeyLoadingException {
         checkServiceAvailability();
 
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
-        URI certUri = new URI(certificateUri);
-        if (isUriTypeOf(certUri, Pkcs11URI.PKCS11_SCHEME)) {
-            validateCertificateUri(new Pkcs11URI(certUri), keyUri);
+        if (isUriTypeOf(certificateUri, Pkcs11URI.PKCS11_SCHEME)) {
+            validateCertificateUri(new Pkcs11URI(certificateUri), keyUri);
         } else {
-            if (!isUriTypeOf(certUri, FILE_SCHEME)) {
+            if (!isUriTypeOf(certificateUri, FILE_SCHEME)) {
                 logger.atError().kv(CERT_URI, certificateUri)
                         .log(String.format("Cert URI is neither %s nor %s", Pkcs11URI.PKCS11_SCHEME, FILE_SCHEME));
                 throw new KeyLoadingException("Cert URI not supported");
@@ -229,7 +226,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
                 logger.atError().kv("keyLabel", keyLabel).log("No specific key in key store");
                 throw new KeyLoadingException("Key not existed");
             }
-            if (isUriTypeOf(certUri, FILE_SCHEME)) {
+            if (isUriTypeOf(certificateUri, FILE_SCHEME)) {
                 List<X509Certificate> certChain = EncryptionUtils.loadX509Certificates(Paths.get(certificateUri));
                 ks.setKeyEntry(keyLabel, ks.getKey(keyLabel, password), password,
                         certChain.toArray(new Certificate[0]));
@@ -247,11 +244,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     @Override
-    public KeyPair getKeyPair(String s) throws ServiceUnavailableException, KeyLoadingException, URISyntaxException {
+    public KeyPair getKeyPair(URI s) throws ServiceUnavailableException, KeyLoadingException {
         return null;
     }
 
-    private Pkcs11URI validatePrivateKeyUri(String privateKeyUri) throws KeyLoadingException, URISyntaxException {
+    private Pkcs11URI validatePrivateKeyUri(URI privateKeyUri) throws KeyLoadingException {
         Pkcs11URI keyUri;
         try {
             keyUri = new Pkcs11URI(privateKeyUri);

@@ -35,6 +35,8 @@ import sun.security.pkcs11.wrapper.PKCS11Constants;
 import sun.security.pkcs11.wrapper.PKCS11Exception;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.Provider;
@@ -63,6 +65,17 @@ import static org.mockito.Mockito.verify;
 @ExtendWith({MockitoExtension.class, GGExtension.class})
 class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     private static final long TEST_TIME_OUT_SEC = 30L;
+    private static final URI PRIVATE_KEY_URI;
+    private static final URI CERTIFICATE_URI;
+
+    static {
+        try {
+            PRIVATE_KEY_URI = new URI("pkcs11:object=iotkey;type=private");
+            CERTIFICATE_URI = new URI("pkcs11:object=iotkey;type=cert");
+        } catch (URISyntaxException e) {
+            throw new RuntimeException("Failed to create URIs", e);
+        }
+    }
 
     private Kernel kernel;
 
@@ -195,7 +208,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startService(false, State.ERRORED);
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        assertThrows(ServiceUnavailableException.class, () -> service.getKeyManagers("keyUri", "certUri"));
+        assertThrows(ServiceUnavailableException.class, () -> service.getKeyManagers(PRIVATE_KEY_URI, CERTIFICATE_URI));
     }
 
     @Test
@@ -207,7 +220,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("file:///path/to/file", "certUri"));
+                () -> service.getKeyManagers(new URI("file:///path/to/file"), CERTIFICATE_URI));
         assertThat(e.getMessage(), containsString("Invalid private key URI"));
     }
 
@@ -216,8 +229,8 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        Exception e =
-                assertThrows(KeyLoadingException.class, () -> service.getKeyManagers("pkcs11:type=private", "certUri"));
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers(new URI("pkcs11:type=private"), CERTIFICATE_URI));
         assertThat(e.getMessage(), containsString("Empty key label"));
     }
 
@@ -227,7 +240,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("pkcs11:object=foo-bar", "certUri"));
+                () -> service.getKeyManagers(new URI("pkcs11:object=foo-bar"), CERTIFICATE_URI));
         assertThat(e.getMessage(), containsString("Wrong key type"));
     }
 
@@ -237,7 +250,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo-bar"));
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs11:object=foo-bar")));
         assertThat(e.getMessage(), containsString("Wrong cert type"));
     }
 
@@ -246,8 +259,8 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo;type=cert"));
+        Exception e = assertThrows(KeyLoadingException.class, () -> service
+                .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"), new URI("pkcs11:object=foo;type=cert")));
         assertThat(e.getMessage(), containsString("Different key and cert labels"));
     }
 
@@ -257,7 +270,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs:object=foo;type=cert"));
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs:object=foo;type=cert")));
         assertThat(e.getMessage(), containsString("Cert URI not supported"));
     }
 
@@ -266,8 +279,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        KeyManager[] keyManagers =
-                service.getKeyManagers("pkcs11:object=iotkey;type=private", "pkcs11:object=iotkey;type=cert");
+        KeyManager[] keyManagers = service.getKeyManagers(PRIVATE_KEY_URI, CERTIFICATE_URI);
         assertThat(keyManagers.length, Is.is(1));
         assertThat(((X509KeyManager) keyManagers[0]).getPrivateKey("iotkey"), IsNull.notNullValue());
     }
@@ -277,8 +289,9 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        Exception e = assertThrows(KeyLoadingException.class,
-                () -> service.getKeyManagers("pkcs11:object=foo-bar;type=private", "pkcs11:object=foo-bar;type=cert"));
+        Exception e = assertThrows(KeyLoadingException.class, () -> service
+                .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"),
+                        new URI("pkcs11:object=foo-bar;type=cert")));
         assertThat(e.getMessage(), containsString("Key not existed"));
     }
 }

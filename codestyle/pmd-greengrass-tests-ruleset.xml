@@ -72,6 +72,7 @@
         <exclude name="UseProperClassLoader"/>
         <exclude name="AvoidDuplicateLiterals"/>
         <exclude name="JUnitSpelling"/>
+        <exclude name="DontImportSun"/>
     </rule>
     <rule ref="category/java/multithreading.xml">
         <exclude name="DoNotUseThreads"/>

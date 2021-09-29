@@ -60,6 +60,7 @@
         <exclude name="AvoidFieldNameMatchingMethodName"/>
         <exclude name="UseProperClassLoader"/>
         <exclude name="ConstructorCallsOverridableMethod"/>
+        <exclude name="DontImportSun"/>
     </rule>
     <rule ref="category/java/errorprone.xml/AvoidDuplicateLiterals">
         <properties>

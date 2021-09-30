@@ -18,6 +18,7 @@ import com.aws.greengrass.security.provider.pkcs11.softhsm.SoftHSM;
 import com.aws.greengrass.testcommons.testutilities.GGExtension;
 import com.aws.greengrass.util.EncryptionUtils;
 import com.aws.greengrass.util.EncryptionUtilsTest;
+import com.aws.greengrass.util.Pair;
 import org.hamcrest.core.Is;
 import org.hamcrest.core.IsNull;
 import org.junit.jupiter.api.AfterAll;
@@ -36,9 +37,8 @@ import sun.security.pkcs11.wrapper.PKCS11Exception;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.file.Path;
-import java.security.PrivateKey;
+import java.security.KeyPair;
 import java.security.Provider;
 import java.security.Security;
 import java.security.cert.Certificate;
@@ -46,7 +46,6 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.X509KeyManager;
 
@@ -65,17 +64,8 @@ import static org.mockito.Mockito.verify;
 @ExtendWith({MockitoExtension.class, GGExtension.class})
 class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     private static final long TEST_TIME_OUT_SEC = 30L;
-    private static final URI PRIVATE_KEY_URI;
-    private static final URI CERTIFICATE_URI;
-
-    static {
-        try {
-            PRIVATE_KEY_URI = new URI("pkcs11:object=iotkey;type=private");
-            CERTIFICATE_URI = new URI("pkcs11:object=iotkey;type=cert");
-        } catch (URISyntaxException e) {
-            throw new RuntimeException("Failed to create URIs", e);
-        }
-    }
+    private static final URI PRIVATE_KEY_URI = URI.create("pkcs11:object=iotkey;type=private");
+    private static final URI CERTIFICATE_URI = URI.create("pkcs11:object=iotkey;type=cert");
 
     private Kernel kernel;
 
@@ -90,13 +80,11 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         hsm = new SoftHSM();
         token = hsm.initToken(
                 HSMToken.builder().name("softhsm-pkcs11").label("greengrass1").slotId(0).userPin("7526").build());
-        Path certPath =
-                EncryptionUtilsTest.generateCertificateFile(2048, true, resourcePath.resolve("certificate.pem"), false);
-        Path privateKeyPath = EncryptionUtilsTest
-                .generatePkCS8PrivateKeyFile(2048, true, resourcePath.resolve("privateKey.pem"), false);
-        PrivateKey privateKey = EncryptionUtils.loadPrivateKey(privateKeyPath);
-        List<X509Certificate> certificateChain = EncryptionUtils.loadX509Certificates(certPath);
-        hsm.importPrivateKey(privateKey, certificateChain.toArray(new Certificate[0]), "iotkey", token);
+        Pair<Path, KeyPair> cert =
+                EncryptionUtilsTest.generateCertificateFile(2048, true, resourcePath.resolve("certificate.pem"),
+                        false);
+        List<X509Certificate> certificateChain = EncryptionUtils.loadX509Certificates(cert.getLeft());
+        hsm.importPrivateKey(cert.getRight().getPrivate(), certificateChain.toArray(new Certificate[0]), "iotkey", token);
     }
 
     @BeforeEach
@@ -241,7 +229,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(new URI("pkcs11:object=foo-bar"), CERTIFICATE_URI));
-        assertThat(e.getMessage(), containsString("Wrong key type"));
+        assertThat(e.getMessage(), containsString("Private key must be a PKCS11 private type, but was null"));
     }
 
     @Test
@@ -251,7 +239,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs11:object=foo-bar")));
-        assertThat(e.getMessage(), containsString("Wrong cert type"));
+        assertThat(e.getMessage(), containsString("Certificate must be a PKCS11 cert type, but was null"));
     }
 
     @Test
@@ -261,7 +249,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class, () -> service
                 .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"), new URI("pkcs11:object=foo;type=cert")));
-        assertThat(e.getMessage(), containsString("Different key and cert labels"));
+        assertThat(e.getMessage(), containsString("Private key and certificate labels must be the same"));
     }
 
     @Test
@@ -271,7 +259,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs:object=foo;type=cert")));
-        assertThat(e.getMessage(), containsString("Cert URI not supported"));
+        assertThat(e.getMessage(), containsString("Unrecognized certificate URI scheme pkcs for provider"));
     }
 
     @Test
@@ -292,6 +280,6 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         Exception e = assertThrows(KeyLoadingException.class, () -> service
                 .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"),
                         new URI("pkcs11:object=foo-bar;type=cert")));
-        assertThat(e.getMessage(), containsString("Key not existed"));
+        assertThat(e.getMessage(), containsString("Key foo-bar does not exist"));
     }
 }

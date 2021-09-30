@@ -6,7 +6,6 @@ import com.aws.greengrass.util.platforms.Platform;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
-import org.apache.commons.io.filefilter.TrueFileFilter;
 import sun.security.pkcs11.SunPKCS11;
 
 import java.io.ByteArrayInputStream;
@@ -133,9 +132,10 @@ public class SoftHSM {
     private Path findSoftHSMSharedLibrary() {
         for (String usrLibDirectory : SOFTHSM_INSTALL_DIRECTORY) {
             IOFileFilter fileFilter = FileFilterUtils.nameFileFilter(SOFTHSM_SHARED_LIBRARY_FILE_NAME);
+            IOFileFilter dirFilter = FileFilterUtils.notFileFilter(FileFilterUtils.nameFileFilter("Python.framework"));
             Collection<File> fileList;
             try {
-                 fileList = FileUtils.listFiles(new File(usrLibDirectory), fileFilter, TrueFileFilter.INSTANCE);
+                 fileList = FileUtils.listFiles(new File(usrLibDirectory), fileFilter, dirFilter);
             } catch (IllegalArgumentException e) {
                 // directory may not exist
                 continue;

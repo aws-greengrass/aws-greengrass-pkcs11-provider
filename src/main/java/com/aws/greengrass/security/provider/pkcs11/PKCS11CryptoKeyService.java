@@ -26,6 +26,8 @@ import sun.security.pkcs11.SunPKCS11;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
@@ -59,6 +61,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private static final String FILE_SCHEME = "file";
     private static final String PKCS11_TYPE_PRIVATE = "private";
     private static final String PKCS11_TYPE_CERT = "cert";
+    private static final String CONFIGURE_METHOD_NAME = "configure";
+    private static final String GET_PROVIDER_METHOD_NAME = "getProvider";
+    private static final String SUNPKCS11_PROVIDER = "SunPKCS11";
 
     private final SecurityService securityService;
 
@@ -153,13 +158,29 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private Provider createNewProvider() {
         String configuration = buildConfiguration();
         logger.atInfo().kv("configuration", configuration).log("Initialize pkcs11 provider with configuration");
-        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
-            return new SunPKCS11(configStream);
-        } catch (ProviderException | IOException e) {
-            logger.atError().setCause(e).kv("configuration", configuration).log("Failed to initialize pkcs11 provider");
-            serviceErrored(e);
-            return null;
+        final Exception exception;
+        try {
+            Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
+            Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
+            Provider provider = (Provider) getProviderMethod.invoke(null, SUNPKCS11_PROVIDER);
+            return (Provider) configureMethod.invoke(provider, convertConfigToJdk9AndAbove(configuration));
+        } catch (NoSuchMethodException e) {
+            try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
+                return new SunPKCS11(configStream);
+            } catch (ProviderException | IOException ex) {
+                exception = ex;
+            }
+        } catch (InvocationTargetException | IllegalAccessException e) {
+            exception = e;
         }
+        logger.atError().setCause(exception).kv("configuration", configuration)
+                .log("Failed to initialize pkcs11 provider");
+        serviceErrored(exception);
+        return null;
+    }
+
+    private String convertConfigToJdk9AndAbove(String configuration) {
+        return "--" + configuration;
     }
 
     private boolean removeProviderFromJCA() {

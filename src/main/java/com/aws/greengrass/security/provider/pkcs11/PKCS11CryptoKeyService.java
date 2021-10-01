@@ -19,11 +19,11 @@ import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
 import com.aws.greengrass.util.Coerce;
 import com.aws.greengrass.util.EncryptionUtils;
 import com.aws.greengrass.util.Utils;
-import sun.security.pkcs11.SunPKCS11;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -157,8 +157,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         final Exception exception;
 
         try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
-            return new SunPKCS11(configStream);
-        } catch (NoSuchMethodError | IllegalAccessError ex) {
+            Constructor sunPKCS11Constructor =
+                    Class.forName("sun.security.pkcs11.SunPKCS11").getConstructor(InputStream.class);
+            return (Provider) sunPKCS11Constructor.newInstance(configStream);
+        } catch (NoSuchMethodError | IllegalAccessError | NoSuchMethodException ex) {
             try {
                 Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
                 Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
@@ -167,7 +169,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
                 exception = e;
             }
-        } catch (ProviderException | IOException ex) {
+        } catch (ProviderException | IOException | ClassNotFoundException | InstantiationException |
+                IllegalAccessException | InvocationTargetException ex) {
             exception = ex;
         }
         serviceErrored(exception);

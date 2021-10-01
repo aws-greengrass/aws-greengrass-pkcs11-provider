@@ -169,8 +169,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
                 exception = e;
             }
-        } catch (ProviderException | IOException | ClassNotFoundException | InstantiationException |
-                IllegalAccessException | InvocationTargetException ex) {
+        } catch (ProviderException | IOException | ClassNotFoundException | InstantiationException
+                | IllegalAccessException | InvocationTargetException ex) {
             exception = ex;
         }
         serviceErrored(exception);

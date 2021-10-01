@@ -82,7 +82,10 @@ class SingleKeyStore extends KeyStore {
 
         @Override
         public Certificate engineGetCertificate(String alias) {
-            return null;
+            if (!keyLabel.equals(alias)) {
+                return null;
+            }
+            return keyStoreSpi.engineGetCertificate(alias);
         }
 
         @Override
@@ -149,7 +152,10 @@ class SingleKeyStore extends KeyStore {
 
         @Override
         public boolean engineIsCertificateEntry(String alias) {
-            return false;
+            if (!keyLabel.equals(alias)) {
+                return false;
+            }
+            return keyStoreSpi.engineIsCertificateEntry(alias);
         }
 
         @Override

@@ -153,24 +153,23 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private Provider createNewProvider() {
         String configuration = buildConfiguration();
-        logger.atInfo().kv("configuration", configuration).log("Initialize pkcs11 provider with configuration");
+        logger.atInfo().kv("configuration", configuration).log("Initializing PKCS11 provider with configuration");
         final Exception exception;
-        try {
-            Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
-            Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
-            Provider provider = (Provider) getProviderMethod.invoke(null, SUNPKCS11_PROVIDER);
-            return (Provider) configureMethod.invoke(provider, convertConfigToJdk9AndAbove(configuration));
-        } catch (NoSuchMethodException e) {
-            try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
-                return new SunPKCS11(configStream);
-            } catch (ProviderException | IOException ex) {
-                exception = ex;
+
+        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
+            return new SunPKCS11(configStream);
+        } catch (NoSuchMethodError | IllegalAccessError ex) {
+            try {
+                Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
+                Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
+                Provider provider = (Provider) getProviderMethod.invoke(null, SUNPKCS11_PROVIDER);
+                return (Provider) configureMethod.invoke(provider, convertConfigToJdk9AndAbove(configuration));
+            } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
+                exception = e;
             }
-        } catch (InvocationTargetException | IllegalAccessException e) {
-            exception = e;
+        } catch (ProviderException | IOException ex) {
+            exception = ex;
         }
-        logger.atError().setCause(exception).kv("configuration", configuration)
-                .log("Failed to initialize pkcs11 provider");
         serviceErrored(exception);
         return null;
     }

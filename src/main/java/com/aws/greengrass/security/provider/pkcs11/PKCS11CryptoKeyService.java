@@ -46,6 +46,7 @@ import javax.net.ssl.KeyManagerFactory;
 
 import static com.aws.greengrass.componentmanager.KernelConfigResolver.CONFIGURATION_CONFIG_KEY;
 
+@SuppressWarnings("PMD.AvoidCatchingGenericException")
 @ImplementsService(name = PKCS11CryptoKeyService.PKCS11_SERVICE_NAME, autostart = true)
 public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySpi {
     public static final String PKCS11_SERVICE_NAME = "aws.greengrass.pkcs11.provider";
@@ -72,6 +73,39 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private int slotId;
     // It's read and written on different threads
     private final AtomicReference<char[]> userPin = new AtomicReference<>();
+
+    /**
+     * Creates a new SunPKCS11 Provider.
+     * @param configuration str String used to configure the provider.
+     * @return Provider
+     * @throws ProviderException if Provider cannot be instantiated.
+     */
+    public static Provider createNewProvider(String configuration) {
+        final Exception exception;
+
+        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
+            Constructor sunPKCS11Constructor =
+                    Class.forName("sun.security.pkcs11.SunPKCS11").getConstructor(InputStream.class);
+            return (Provider) sunPKCS11Constructor.newInstance(configStream);
+        } catch (NoSuchMethodError | IllegalAccessError | NoSuchMethodException ex) {
+            try {
+                Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
+                Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
+                Provider provider = (Provider) getProviderMethod.invoke(null, SUNPKCS11_PROVIDER);
+                return (Provider) configureMethod.invoke(provider, convertConfigToJdk9AndAbove(configuration));
+            } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
+                exception = e;
+            }
+        } catch (ProviderException | IOException | ClassNotFoundException | InstantiationException
+                | IllegalAccessException | InvocationTargetException ex) {
+            exception = ex;
+        }
+        throw new ProviderException("Failed to instantiate Provider: ", exception);
+    }
+
+    private static String convertConfigToJdk9AndAbove(String configuration) {
+        return "--" + configuration;
+    }
 
     protected synchronized Provider getPkcs11Provider() {
         return pkcs11Provider;
@@ -141,7 +175,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private synchronized void initializePkcs11Provider() {
-        Provider newProvider = createNewProvider();
+        Provider newProvider = getNewProvider();
         if (newProvider != null && removeProviderFromJCA()) {
             if (addProviderToJCA(newProvider)) {
                 this.pkcs11Provider = newProvider;
@@ -151,34 +185,15 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         }
     }
 
-    private Provider createNewProvider() {
+    private Provider getNewProvider() {
         String configuration = buildConfiguration();
         logger.atInfo().kv("configuration", configuration).log("Initializing PKCS11 provider with configuration");
-        final Exception exception;
-
-        try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
-            Constructor sunPKCS11Constructor =
-                    Class.forName("sun.security.pkcs11.SunPKCS11").getConstructor(InputStream.class);
-            return (Provider) sunPKCS11Constructor.newInstance(configStream);
-        } catch (NoSuchMethodError | IllegalAccessError | NoSuchMethodException ex) {
-            try {
-                Method configureMethod = Provider.class.getMethod(CONFIGURE_METHOD_NAME, String.class);
-                Method getProviderMethod = Security.class.getMethod(GET_PROVIDER_METHOD_NAME, String.class);
-                Provider provider = (Provider) getProviderMethod.invoke(null, SUNPKCS11_PROVIDER);
-                return (Provider) configureMethod.invoke(provider, convertConfigToJdk9AndAbove(configuration));
-            } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
-                exception = e;
-            }
-        } catch (ProviderException | IOException | ClassNotFoundException | InstantiationException
-                | IllegalAccessException | InvocationTargetException ex) {
-            exception = ex;
+        try {
+            return createNewProvider(configuration);
+        } catch (ProviderException e) {
+            serviceErrored(e.getCause());
+            throw e;
         }
-        serviceErrored(exception);
-        return null;
-    }
-
-    private String convertConfigToJdk9AndAbove(String configuration) {
-        return "--" + configuration;
     }
 
     private boolean removeProviderFromJCA() {

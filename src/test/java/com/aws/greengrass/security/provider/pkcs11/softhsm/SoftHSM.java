@@ -1,17 +1,16 @@
 package com.aws.greengrass.security.provider.pkcs11.softhsm;
 
 import com.aws.greengrass.config.PlatformResolver;
+import com.aws.greengrass.security.provider.pkcs11.PKCS11CryptoKeyService;
+import com.aws.greengrass.security.provider.pkcs11.exceptions.ProviderInstantiationException;
 import com.aws.greengrass.util.Exec;
 import com.aws.greengrass.util.platforms.Platform;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
-import sun.security.pkcs11.SunPKCS11;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -88,22 +87,18 @@ public class SoftHSM {
     }
 
     public void importPrivateKey(PrivateKey pKey, Certificate[] certChain, String keyLabel, HSMToken token)
-            throws CertificateException, IOException, NoSuchAlgorithmException, KeyStoreException {
-        Provider provider;
-        try (InputStream configStream = new ByteArrayInputStream(buildConfiguration(token).getBytes())) {
-            provider = new SunPKCS11(configStream);
-        }
+            throws CertificateException, IOException, NoSuchAlgorithmException, KeyStoreException,
+            ProviderInstantiationException {
+        Provider provider = PKCS11CryptoKeyService.createNewProvider(buildConfiguration(token));
         KeyStore ks = KeyStore.getInstance("PKCS11", provider);
         ks.load(null, token.getUserPin().toCharArray());
         ks.setKeyEntry(keyLabel, pKey, token.getUserPin().toCharArray(), certChain);
     }
 
     public boolean containKey(String keyLabel, HSMToken token)
-            throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException {
-        Provider provider;
-        try (InputStream configStream = new ByteArrayInputStream(buildConfiguration(token).getBytes())) {
-            provider = new SunPKCS11(configStream);
-        }
+            throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException,
+            ProviderInstantiationException {
+        Provider provider = PKCS11CryptoKeyService.createNewProvider(buildConfiguration(token));
         KeyStore ks = KeyStore.getInstance("PKCS11", provider);
         ks.load(null, token.getUserPin().toCharArray());
 

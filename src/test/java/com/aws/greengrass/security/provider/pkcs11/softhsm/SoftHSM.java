@@ -2,6 +2,7 @@ package com.aws.greengrass.security.provider.pkcs11.softhsm;
 
 import com.aws.greengrass.config.PlatformResolver;
 import com.aws.greengrass.security.provider.pkcs11.PKCS11CryptoKeyService;
+import com.aws.greengrass.security.provider.pkcs11.exceptions.ProviderInstantiationException;
 import com.aws.greengrass.util.Exec;
 import com.aws.greengrass.util.platforms.Platform;
 import org.apache.commons.io.FileUtils;
@@ -82,7 +83,8 @@ public class SoftHSM {
     }
 
     public void importPrivateKey(PrivateKey pKey, Certificate[] certChain, String keyLabel, HSMToken token)
-            throws CertificateException, IOException, NoSuchAlgorithmException, KeyStoreException {
+            throws CertificateException, IOException, NoSuchAlgorithmException, KeyStoreException,
+            ProviderInstantiationException {
         Provider provider = PKCS11CryptoKeyService.createNewProvider(buildConfiguration(token));
         KeyStore ks = KeyStore.getInstance("PKCS11", provider);
         ks.load(null, token.getUserPin().toCharArray());
@@ -90,7 +92,8 @@ public class SoftHSM {
     }
 
     public boolean containKey(String keyLabel, HSMToken token)
-            throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException {
+            throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException,
+            ProviderInstantiationException {
         Provider provider = PKCS11CryptoKeyService.createNewProvider(buildConfiguration(token));
         KeyStore ks = KeyStore.getInstance("PKCS11", provider);
         ks.load(null, token.getUserPin().toCharArray());

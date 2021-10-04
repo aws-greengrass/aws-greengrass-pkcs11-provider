@@ -16,6 +16,7 @@ import com.aws.greengrass.security.SecurityService;
 import com.aws.greengrass.security.exceptions.KeyLoadingException;
 import com.aws.greengrass.security.exceptions.ServiceProviderConflictException;
 import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
+import com.aws.greengrass.security.provider.pkcs11.exceptions.ProviderInstantiationException;
 import com.aws.greengrass.util.Coerce;
 import com.aws.greengrass.util.EncryptionUtils;
 import com.aws.greengrass.util.Utils;
@@ -78,11 +79,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
      * Creates a new SunPKCS11 Provider.
      * @param configuration str String used to configure the provider.
      * @return Provider
-     * @throws ProviderException if Provider cannot be instantiated.
+     * @throws ProviderInstantiationException if Provider cannot be instantiated.
      */
-    public static Provider createNewProvider(String configuration) {
+    public static Provider createNewProvider(String configuration) throws ProviderInstantiationException {
         final Exception exception;
-
         try (InputStream configStream = new ByteArrayInputStream(configuration.getBytes())) {
             Constructor sunPKCS11Constructor =
                     Class.forName("sun.security.pkcs11.SunPKCS11").getConstructor(InputStream.class);
@@ -100,7 +100,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
                 | IllegalAccessException | InvocationTargetException ex) {
             exception = ex;
         }
-        throw new ProviderException("Failed to instantiate Provider: ", exception);
+        throw new ProviderInstantiationException(exception);
     }
 
     private static String convertConfigToJdk9AndAbove(String configuration) {
@@ -188,11 +188,18 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private Provider getNewProvider() {
         String configuration = buildConfiguration();
         logger.atInfo().kv("configuration", configuration).log("Initializing PKCS11 provider with configuration");
+        long startTimeMillis = System.currentTimeMillis();
+        boolean instantiated = true;
         try {
             return createNewProvider(configuration);
-        } catch (ProviderException e) {
+        } catch (ProviderInstantiationException e) {
+            instantiated = false;
             serviceErrored(e.getCause());
-            throw e;
+            return null;
+        } finally {
+            if (instantiated) {
+                logger.atInfo().log("Instantiation time: %s", System.currentTimeMillis() - startTimeMillis);
+            }
         }
     }
 

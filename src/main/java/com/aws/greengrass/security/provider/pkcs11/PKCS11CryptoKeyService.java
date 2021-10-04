@@ -188,18 +188,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private Provider getNewProvider() {
         String configuration = buildConfiguration();
         logger.atInfo().kv("configuration", configuration).log("Initializing PKCS11 provider with configuration");
-        long startTimeMillis = System.currentTimeMillis();
-        boolean instantiated = true;
         try {
             return createNewProvider(configuration);
         } catch (ProviderInstantiationException e) {
-            instantiated = false;
             serviceErrored(e.getCause());
             return null;
-        } finally {
-            if (instantiated) {
-                logger.atInfo().log("Instantiation time: %s", System.currentTimeMillis() - startTimeMillis);
-            }
         }
     }
 

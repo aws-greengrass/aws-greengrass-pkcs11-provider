@@ -222,6 +222,12 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private String buildConfiguration() {
+        if (Utils.isEmpty(name)) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for name");
+        }
+        if (Utils.isEmpty(libraryPath)) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
+        }
         return NAME_TOPIC + "=" + name + System.lineSeparator() + LIBRARY_TOPIC + "=" + libraryPath + System
                 .lineSeparator() + SLOT_ID_TOPIC + "=" + slotId;
     }

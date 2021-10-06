@@ -50,7 +50,7 @@ import static com.aws.greengrass.componentmanager.KernelConfigResolver.CONFIGURA
 @SuppressWarnings("PMD.AvoidCatchingGenericException")
 @ImplementsService(name = PKCS11CryptoKeyService.PKCS11_SERVICE_NAME, autostart = true)
 public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySpi {
-    public static final String PKCS11_SERVICE_NAME = "aws.greengrass.pkcs11.provider";
+    public static final String PKCS11_SERVICE_NAME = "aws.greengrass.crypto.Pkcs11Provider";
     public static final String NAME_TOPIC = "name";
     public static final String LIBRARY_TOPIC = "library";
     public static final String SLOT_ID_TOPIC = "slot";

@@ -32,11 +32,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SoftHSM {
-    private static final String SOFTHSM_TOKEN_DIRECTORY ;
+    private static final String SOFTHSM_TOKEN_DIRECTORY;
     private static final List<String> SOFTHSM_INSTALL_DIRECTORY;
     private static final String SOFTHSM_SHARED_LIBRARY_FILE_NAME = "libsofthsm2.so";
     private static final String SOFTHSM_SO_PIN = "12345";
     private static final Pattern SLOT_ID_PATTERN = Pattern.compile("initialized\\s*.+\\s*slot\\s([0-9]+)");
+    private static final Path USUAL_LINUX_LOCATION = Paths.get("/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so");
 
     static {
         if ("darwin".equals(PlatformResolver.getOSInfo())) {
@@ -125,12 +126,15 @@ public class SoftHSM {
     }
 
     private Path findSoftHSMSharedLibrary() {
+        if (Files.exists(USUAL_LINUX_LOCATION)) {
+            return USUAL_LINUX_LOCATION;
+        }
         for (String usrLibDirectory : SOFTHSM_INSTALL_DIRECTORY) {
             IOFileFilter fileFilter = FileFilterUtils.nameFileFilter(SOFTHSM_SHARED_LIBRARY_FILE_NAME);
             IOFileFilter dirFilter = FileFilterUtils.notFileFilter(FileFilterUtils.nameFileFilter("Python.framework"));
             Collection<File> fileList;
             try {
-                 fileList = FileUtils.listFiles(new File(usrLibDirectory), fileFilter, dirFilter);
+                fileList = FileUtils.listFiles(new File(usrLibDirectory), fileFilter, dirFilter);
             } catch (IllegalArgumentException e) {
                 // directory may not exist
                 continue;

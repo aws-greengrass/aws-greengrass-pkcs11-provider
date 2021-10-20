@@ -39,9 +39,11 @@ import java.security.ProviderException;
 import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.inject.Inject;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -370,7 +372,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             return true;
         }
         Map<String, Object> newConfiguration = getNewServiceConfiguration(newServiceConfig);
-        if (libraryPath == null || !libraryPath.equals(newConfiguration.get(LIBRARY_TOPIC))) {
+        if (!Objects.equals(libraryPath, newConfiguration.get(LIBRARY_TOPIC))) {
             logger.atTrace().log("PKCS11 library path changes, requires bootstrap");
             return true;
         }
@@ -378,8 +380,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             logger.atTrace().log("PKCS11 slot id changes, requires bootstrap");
             return true;
         }
-        String userPinStr = userPin == null ? null : new String(userPin);
-        if (userPinStr == null || !userPinStr.equals(newConfiguration.get(USER_PIN_TOPIC))) {
+        char[] updatedUserPin = newConfiguration.get(USER_PIN_TOPIC) == null ? null
+                : ((String) newConfiguration.get(USER_PIN_TOPIC)).toCharArray();
+        if (!Arrays.equals(userPin, updatedUserPin)) {
             logger.atTrace().log("PKCS11 user pin changes, requires bootstrap");
             return true;
         }

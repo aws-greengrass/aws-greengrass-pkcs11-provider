@@ -346,7 +346,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
-    void GIVEN_user_id_change_WHEN_bootstrap_required_THEN_return_true() throws Exception {
+    void GIVEN_user_pin_change_WHEN_bootstrap_required_THEN_return_true() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
@@ -356,6 +356,21 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 put(PKCS11CryptoKeyService.LIBRARY_TOPIC, hsm.getSharedLibraryPath().toString());
                 put(PKCS11CryptoKeyService.SLOT_ID_TOPIC, token.getSlotId());
                 put(PKCS11CryptoKeyService.USER_PIN_TOPIC, token.getUserPin()+"5678");
+            }});
+        }};
+        assertThat(service.isBootstrapRequired(newServiceConfig), Is.is(true));
+    }
+
+    @Test
+    void GIVEN_user_pin_change_null_WHEN_bootstrap_required_THEN_return_true() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Map<String, Object> newServiceConfig = new HashMap<String, Object>() {{
+            put(VERSION_CONFIG_KEY, "0.0.0");
+            put(CONFIGURATION_CONFIG_KEY, new HashMap<String, Object>() {{
+                put(PKCS11CryptoKeyService.LIBRARY_TOPIC, hsm.getSharedLibraryPath().toString());
+                put(PKCS11CryptoKeyService.SLOT_ID_TOPIC, token.getSlotId());
             }});
         }};
         assertThat(service.isBootstrapRequired(newServiceConfig), Is.is(true));

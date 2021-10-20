@@ -39,8 +39,9 @@ import java.security.ProviderException;
 import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Map;
 import javax.inject.Inject;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -70,10 +71,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     // PKCS11 configuration
     private String name;
-    private String libraryPath;
-    private int slotId;
-    // It's read and written on different threads
-    private final AtomicReference<char[]> userPin = new AtomicReference<>();
+    // To ensure variable visibility on read thread
+    private volatile String libraryPath;
+    private volatile int slotId;
+    private volatile char[] userPin;
 
     /**
      * Creates a new SunPKCS11 Provider.
@@ -135,7 +136,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             serviceErrored(e);
             return;
         }
-
         super.startup();
     }
 
@@ -170,7 +170,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private void updateUserPin(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
             String userPinStr = Coerce.toString(topic);
-            this.userPin.set(userPinStr == null ? null : userPinStr.toCharArray());
+            this.userPin = userPinStr == null ? null : userPinStr.toCharArray();
         }
     }
 
@@ -270,7 +270,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         }
 
         String keyLabel = keyUri.getLabel();
-        char[] password = userPin.get();
+        char[] password = userPin;
         try {
             KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), PKCS11_TYPE, keyLabel);
             ks.load(null, password);
@@ -298,7 +298,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
 
         String keyLabel = keyUri.getLabel();
-        char[] password = userPin.get();
+        char[] password = userPin;
         try {
             KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
             Key pk = ks.getKey(keyLabel, password);
@@ -362,5 +362,38 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     @Override
     public String supportedKeyType() {
         return Pkcs11URI.PKCS11_SCHEME;
+    }
+
+    @Override
+    public boolean isBootstrapRequired(Map<String, Object> newServiceConfig) {
+        if (super.isBootstrapRequired(newServiceConfig)) {
+            return true;
+        }
+        Map<String, Object> newConfiguration = getNewServiceConfiguration(newServiceConfig);
+        if (libraryPath == null || !libraryPath.equals(newConfiguration.get(LIBRARY_TOPIC))) {
+            logger.atTrace().log("PKCS11 library path changes, requires bootstrap");
+            return true;
+        }
+        if (!Integer.valueOf(slotId).equals(newConfiguration.get(SLOT_ID_TOPIC))) {
+            logger.atTrace().log("PKCS11 slot id changes, requires bootstrap");
+            return true;
+        }
+        String userPinStr = userPin == null ? null : new String(userPin);
+        if (userPinStr == null || !userPinStr.equals(newConfiguration.get(USER_PIN_TOPIC))) {
+            logger.atTrace().log("PKCS11 user pin changes, requires bootstrap");
+            return true;
+        }
+        logger.atTrace().log("No configuration change requires bootstrap");
+        return false;
+    }
+
+    private Map<String, Object> getNewServiceConfiguration(Map<String, Object> serviceDeploymentConfig) {
+        if (serviceDeploymentConfig != null) {
+            Object configuration = serviceDeploymentConfig.get(CONFIGURATION_CONFIG_KEY);
+            if (configuration instanceof Map) {
+                return (Map<String, Object>) configuration;
+            }
+        }
+        return Collections.emptyMap();
     }
 }

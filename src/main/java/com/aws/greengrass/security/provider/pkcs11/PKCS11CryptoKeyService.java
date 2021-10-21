@@ -12,14 +12,20 @@ import com.aws.greengrass.dependency.ImplementsService;
 import com.aws.greengrass.dependency.State;
 import com.aws.greengrass.lifecyclemanager.PluginService;
 import com.aws.greengrass.security.CryptoKeySpi;
+import com.aws.greengrass.security.MqttConnectionSpi;
 import com.aws.greengrass.security.SecurityService;
 import com.aws.greengrass.security.exceptions.KeyLoadingException;
+import com.aws.greengrass.security.exceptions.MqttConnectionProviderException;
 import com.aws.greengrass.security.exceptions.ServiceProviderConflictException;
 import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
 import com.aws.greengrass.security.provider.pkcs11.exceptions.ProviderInstantiationException;
 import com.aws.greengrass.util.Coerce;
 import com.aws.greengrass.util.EncryptionUtils;
 import com.aws.greengrass.util.Utils;
+import software.amazon.awssdk.crt.CrtRuntimeException;
+import software.amazon.awssdk.crt.io.Pkcs11Lib;
+import software.amazon.awssdk.crt.io.TlsContextPkcs11Options;
+import software.amazon.awssdk.iot.AwsIotMqttConnectionBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -52,7 +58,7 @@ import static com.aws.greengrass.componentmanager.KernelConfigResolver.CONFIGURA
 
 @SuppressWarnings("PMD.AvoidCatchingGenericException")
 @ImplementsService(name = PKCS11CryptoKeyService.PKCS11_SERVICE_NAME, autostart = true)
-public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySpi {
+public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySpi, MqttConnectionSpi {
     public static final String PKCS11_SERVICE_NAME = "aws.greengrass.crypto.Pkcs11Provider";
     public static final String NAME_TOPIC = "name";
     public static final String LIBRARY_TOPIC = "library";
@@ -70,6 +76,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private final SecurityService securityService;
 
     private Provider pkcs11Provider;
+
+    private Pkcs11Lib pkcs11Lib;
 
     // PKCS11 configuration
     private String name;
@@ -114,6 +122,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         return pkcs11Provider;
     }
 
+    protected synchronized Pkcs11Lib getPkcs11Lib() {
+        return pkcs11Lib;
+    }
+
     @Inject
     public PKCS11CryptoKeyService(Topics topics, SecurityService securityService) {
         super(topics);
@@ -127,13 +139,16 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         this.config.lookup(CONFIGURATION_CONFIG_KEY, LIBRARY_TOPIC).subscribe(this::updateLibrary);
         this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
         this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
-        initializePkcs11Provider();
+        if (!initializePkcs11Lib() || !initializePkcs11Provider()) {
+            serviceErrored("Can't initialize PKCS11");
+        }
     }
 
     @Override
     protected void startup() throws InterruptedException {
         try {
             securityService.registerCryptoKeyProvider(this);
+            securityService.registerMqttConnectionProvider(this);
         } catch (ServiceProviderConflictException e) {
             serviceErrored(e);
             return;
@@ -145,8 +160,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private void updateName(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
             this.name = Coerce.toString(topic);
-            if (what != WhatHappened.initialized) {
-                initializePkcs11Provider();
+            if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
+                serviceErrored("Can't initialize PKCS11 JCA provider when name update");
             }
         }
     }
@@ -154,8 +169,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private void updateLibrary(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
             this.libraryPath = Coerce.toString(topic);
-            if (what != WhatHappened.initialized) {
-                initializePkcs11Provider();
+            if (what != WhatHappened.initialized && (!initializePkcs11Lib() || !initializePkcs11Provider())) {
+                serviceErrored("Can't initialize PKCS11 when lib update");
             }
         }
     }
@@ -163,8 +178,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private void updateSlotId(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
             this.slotId = Coerce.toInt(topic);
-            if (what != WhatHappened.initialized) {
-                initializePkcs11Provider();
+            if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
+                serviceErrored("Can't initialize PKCS11 JCA provider when slot update");
             }
         }
     }
@@ -176,15 +191,30 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         }
     }
 
-    private synchronized void initializePkcs11Provider() {
-        Provider newProvider = getNewProvider();
-        if (newProvider != null && removeProviderFromJCA()) {
-            if (addProviderToJCA(newProvider)) {
-                this.pkcs11Provider = newProvider;
-            } else {
-                serviceErrored("Can't add pkcs11 provider to JCA");
-            }
+    private synchronized boolean initializePkcs11Lib() {
+        closePkcs11Lib();
+        try {
+            pkcs11Lib = new Pkcs11Lib(libraryPath);
+            return true;
+        } catch (CrtRuntimeException e) {
+            logger.atError().setCause(e).log("Can't create new PKCS11 lib");
+            return false;
         }
+    }
+
+    private void closePkcs11Lib() {
+        if (pkcs11Lib != null) {
+            pkcs11Lib.close();
+        }
+    }
+
+    private synchronized boolean initializePkcs11Provider() {
+        Provider newProvider = getNewProvider();
+        if (newProvider != null && removeProviderFromJCA() && addProviderToJCA(newProvider)) {
+            this.pkcs11Provider = newProvider;
+            return true;
+        }
+        return false;
     }
 
     private Provider getNewProvider() {
@@ -193,7 +223,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         try {
             return createNewProvider(configuration);
         } catch (ProviderInstantiationException e) {
-            serviceErrored(e.getCause());
+            logger.atError().setCause(e).log("Can't create new PKCS11 JCA provider");
             return null;
         }
     }
@@ -203,7 +233,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             try {
                 Security.removeProvider(pkcs11Provider.getName());
             } catch (SecurityException e) {
-                serviceErrored("Can't remove provider from JCA");
+                logger.atError().setCause(e).log("Can't remove provider from JCA");
                 return false;
             }
         }
@@ -237,8 +267,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     @Override
     protected void shutdown() throws InterruptedException {
         super.shutdown();
-        securityService.deregisterCryptoKeyProvider(this);
+        securityService.deregisterMqttConnectionProvider(this);
         removeProviderFromJCA();
+        securityService.deregisterCryptoKeyProvider(this);
+        closePkcs11Lib();
     }
 
     @Override
@@ -320,6 +352,31 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             throw new KeyLoadingException(
                     String.format("Failed to get key pair for key %s and certificate %s",
                             privateKeyUri, certificateUri), e);
+        }
+    }
+
+    @Override
+    public AwsIotMqttConnectionBuilder getMqttConnectionBuilder(URI privateKeyUri, URI certificateUri)
+            throws ServiceUnavailableException, MqttConnectionProviderException {
+        checkServiceAvailability();
+
+        Pkcs11URI keyUri;
+        try {
+            keyUri = validatePrivateKeyUri(privateKeyUri);
+        } catch (KeyLoadingException e) {
+            throw new MqttConnectionProviderException(e.getMessage(), e);
+        }
+
+        if (!isUriTypeOf(certificateUri, FILE_SCHEME)) {
+            throw new MqttConnectionProviderException(String.format("Only file based certificate is supported for "
+                            + "getting mqtt connection builder in provider %s", PKCS11_SERVICE_NAME));
+        }
+        try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
+                .withSlotId(slotId)
+                .withUserPin(new String(userPin))
+                .withPrivateKeyObjectLabel(keyUri.getLabel())
+                .withCertificateFilePath(Paths.get(certificateUri).toString())) {
+            return AwsIotMqttConnectionBuilder.newMtlsPkcs11Builder(options);
         }
     }
 

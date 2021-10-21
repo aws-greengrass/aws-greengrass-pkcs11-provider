@@ -376,7 +376,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             logger.atTrace().log("PKCS11 library path changes, requires bootstrap");
             return true;
         }
-        if (!Integer.valueOf(slotId).equals(newConfiguration.get(SLOT_ID_TOPIC))) {
+        if (!Integer.valueOf(slotId).equals(Coerce.toInt(newConfiguration.get(SLOT_ID_TOPIC)))) {
             logger.atTrace().log("PKCS11 slot id changes, requires bootstrap");
             return true;
         }

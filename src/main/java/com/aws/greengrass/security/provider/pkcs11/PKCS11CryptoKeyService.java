@@ -83,7 +83,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private String name;
     // To ensure variable visibility on read thread
     private volatile String libraryPath;
-    private volatile int slotId;
+    private volatile Integer slotId;
     private volatile char[] userPin;
 
     /**
@@ -168,11 +168,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private void updateLibrary(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
-            String newLibraryPath = Coerce.toString(topic);
-            if (Utils.isEmpty(newLibraryPath)) {
-                throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
-            }
-            this.libraryPath = newLibraryPath;
+            this.libraryPath = Coerce.toString(topic);
             if (what != WhatHappened.initialized && (!initializePkcs11Lib() || !initializePkcs11Provider())) {
                 serviceErrored("Can't initialize PKCS11 when lib update");
             }
@@ -197,6 +193,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private synchronized boolean initializePkcs11Lib() {
         closePkcs11Lib();
+        if (Utils.isEmpty(libraryPath)) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
+        }
         try {
             pkcs11Lib = new Pkcs11Lib(libraryPath);
             return true;
@@ -258,6 +257,12 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private String buildConfiguration() {
+        if (Utils.isEmpty(libraryPath)) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
+        }
+        if (slotId == null) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for slot id");
+        }
         return NAME_TOPIC + "=" + name + System.lineSeparator() + LIBRARY_TOPIC + "=" + libraryPath + System
                 .lineSeparator() + SLOT_ID_TOPIC + "=" + slotId;
     }
@@ -364,14 +369,13 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         } catch (KeyLoadingException e) {
             throw new MqttConnectionProviderException(e.getMessage(), e);
         }
-
         if (!isUriTypeOf(certificateUri, FILE_SCHEME)) {
             throw new MqttConnectionProviderException(String.format("Only file based certificate is supported for "
                             + "getting mqtt connection builder in provider %s", PKCS11_SERVICE_NAME));
         }
         try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
                 .withSlotId(slotId)
-                .withUserPin(new String(userPin))
+                .withUserPin(userPin == null ? null : String.valueOf(userPin))
                 .withPrivateKeyObjectLabel(keyUri.getLabel())
                 .withCertificateFilePath(Paths.get(certificateUri).toString())) {
             return AwsIotMqttConnectionBuilder.newMtlsPkcs11Builder(options);

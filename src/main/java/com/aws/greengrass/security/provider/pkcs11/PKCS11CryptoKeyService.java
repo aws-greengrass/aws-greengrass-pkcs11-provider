@@ -193,6 +193,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private synchronized boolean initializePkcs11Lib() {
         closePkcs11Lib();
+
+        if (Utils.isEmpty(libraryPath)) {
+            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
+        }
         try {
             pkcs11Lib = new Pkcs11Lib(libraryPath);
             return true;

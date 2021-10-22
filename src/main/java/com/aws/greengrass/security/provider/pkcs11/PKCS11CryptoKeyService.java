@@ -168,7 +168,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private void updateLibrary(WhatHappened what, Topic topic) {
         if (topic != null && what != WhatHappened.timestampUpdated) {
-            this.libraryPath = Coerce.toString(topic);
+            String newLibraryPath = Coerce.toString(topic);
+            if (Utils.isEmpty(newLibraryPath)) {
+                throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
+            }
+            this.libraryPath = newLibraryPath;
             if (what != WhatHappened.initialized && (!initializePkcs11Lib() || !initializePkcs11Provider())) {
                 serviceErrored("Can't initialize PKCS11 when lib update");
             }
@@ -193,10 +197,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private synchronized boolean initializePkcs11Lib() {
         closePkcs11Lib();
-
-        if (Utils.isEmpty(libraryPath)) {
-            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
-        }
         try {
             pkcs11Lib = new Pkcs11Lib(libraryPath);
             return true;
@@ -258,12 +258,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     private String buildConfiguration() {
-        if (Utils.isEmpty(name)) {
-            throw new IllegalArgumentException("PKCS11 missing required configuration value for name");
-        }
-        if (Utils.isEmpty(libraryPath)) {
-            throw new IllegalArgumentException("PKCS11 missing required configuration value for library");
-        }
         return NAME_TOPIC + "=" + name + System.lineSeparator() + LIBRARY_TOPIC + "=" + libraryPath + System
                 .lineSeparator() + SLOT_ID_TOPIC + "=" + slotId;
     }

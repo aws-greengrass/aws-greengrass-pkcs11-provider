@@ -44,6 +44,7 @@ import java.security.ProviderException;
 import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -281,7 +282,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         checkServiceAvailability();
 
         try {
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
+            KeyStore ks = getKeyStore(privateKeyUri);
 
             KeyManagerFactory keyManagerFactory =
                     KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
@@ -289,12 +290,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             return keyManagerFactory.getKeyManagers();
         } catch (GeneralSecurityException e) {
             throw new KeyLoadingException(
-                    String.format("Failed to get key manager for key %s and certificate %s", privateKeyUri,
-                            certificateUri), e);
+                    String.format("Failed to get key manager for key %s", privateKeyUri), e);
         }
     }
 
-    private KeyStore getKeyStore(URI privateKeyUri, URI certificateUri) throws KeyLoadingException {
+    private KeyStore getKeyStore(URI privateKeyUri) throws KeyLoadingException {
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
 
         String keyLabel = keyUri.getLabel();
@@ -308,8 +308,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             return ks;
         } catch (GeneralSecurityException | IOException e) {
             throw new KeyLoadingException(
-                    String.format("Failed to get key store for key %s and certificate %s", privateKeyUri,
-                            certificateUri), e);
+                    String.format("Failed to get key store for key %s", privateKeyUri), e);
         }
     }
 
@@ -323,7 +322,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         String keyLabel = keyUri.getLabel();
         char[] password = userPin;
         try {
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
+            KeyStore ks = getKeyStore(privateKeyUri);
             Key pk = ks.getKey(keyLabel, password);
             if (!(pk instanceof PrivateKey)) {
                 throw new KeyLoadingException(String.format("Key %s is not a private key", keyLabel));
@@ -335,8 +334,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             return new KeyPair(cert.getPublicKey(), (PrivateKey) pk);
         } catch (GeneralSecurityException e) {
             throw new KeyLoadingException(
-                    String.format("Failed to get key pair for key %s and certificate %s",
-                            privateKeyUri, certificateUri), e);
+                    String.format("Failed to get key pair for key %s", privateKeyUri), e);
         }
     }
 
@@ -349,9 +347,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         String certificateContent;
         try {
             keyUri = validatePrivateKeyUri(privateKeyUri);
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
-            certificateContent = getX509CertificateContentString(
-                    getCertificateFromKeyStore(ks, keyUri.getLabel()));
+            KeyStore ks = getKeyStore(privateKeyUri);
+            X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
+            certificateContent = getX509CertificateContentString(certificate);
         } catch (KeyLoadingException | KeyStoreException | CertificateEncodingException e) {
             throw new MqttConnectionProviderException(e.getMessage(), e);
         }
@@ -433,12 +431,12 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         Certificate cert = keyStore.getCertificate(certLabel);
         if (cert == null) {
             throw new KeyLoadingException(
-                    String.format("Unable to load certificate associated with private key %s", certLabel));
+                    String.format("Unable to load certificate with the label %s", certLabel));
         }
         return cert;
     }
 
-    private String getX509CertificateContentString(Certificate certificate) throws CertificateEncodingException {
+    private String getX509CertificateContentString(X509Certificate certificate) throws CertificateEncodingException {
         Base64.Encoder encoder = Base64.getEncoder();
         StringBuilder sb = new StringBuilder(BEGIN_CERT)
                 .append(System.lineSeparator())

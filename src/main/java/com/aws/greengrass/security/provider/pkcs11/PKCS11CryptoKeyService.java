@@ -356,8 +356,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             throw new MqttConnectionProviderException(e.getMessage(), e);
         }
 
-        logger.atInfo().log("Inside getMqttConnectionBuilder(): Certificate content string : " + certificateContent);
-
         try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
                 .withSlotId(slotId)
                 .withUserPin(userPin == null ? null : String.valueOf(userPin))

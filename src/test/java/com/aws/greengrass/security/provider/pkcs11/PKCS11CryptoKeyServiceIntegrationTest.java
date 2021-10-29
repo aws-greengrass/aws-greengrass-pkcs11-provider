@@ -11,6 +11,7 @@ import com.aws.greengrass.integrationtests.BaseITCase;
 import com.aws.greengrass.lifecyclemanager.Kernel;
 import com.aws.greengrass.security.SecurityService;
 import com.aws.greengrass.security.exceptions.KeyLoadingException;
+import com.aws.greengrass.security.exceptions.MqttConnectionProviderException;
 import com.aws.greengrass.security.exceptions.ServiceProviderConflictException;
 import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
 import com.aws.greengrass.security.provider.pkcs11.softhsm.HSMToken;
@@ -237,37 +238,33 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
-    void GIVEN_valid_key_uri_empty_cert_uri_WHEN_get_key_managers_THEN_succeed() throws Exception {
-        // scenario: valid cert is loaded onto HSM but empty cert-path mentioned in config
+    void GIVEN_cert_uri_empty_type_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        KeyManager[] keyManagers = service.getKeyManagers(PRIVATE_KEY_URI, new URI(""));
-        assertThat(keyManagers.length, Is.is(1));
-        assertThat(((X509KeyManager) keyManagers[0]).getPrivateKey("iotkey"), IsNull.notNullValue());
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs11:object=foo-bar")));
+        assertThat(e.getMessage(), containsString("Certificate must be a PKCS11 cert type, but was null"));
     }
 
     @Test
-    void GIVEN_valid_key_label_different_cert_label_WHEN_get_key_managers_THEN_succeed() throws Exception {
-        // scenario: valid cert with correct label is loaded onto HSM but different label mentioned in config
+    void GIVEN_cert_uri_different_label_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        KeyManager[] keyManagers = service.getKeyManagers(PRIVATE_KEY_URI,
-                new URI("pkcs11:object=foo-bar;type=cert"));
-        assertThat(keyManagers.length, Is.is(1));
-        assertThat(((X509KeyManager) keyManagers[0]).getPrivateKey("iotkey"), IsNull.notNullValue());
+        Exception e = assertThrows(KeyLoadingException.class, () -> service
+                .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"), new URI("pkcs11:object=foo;type=cert")));
+        assertThat(e.getMessage(), containsString("Private key and certificate labels must be the same"));
     }
 
     @Test
-    void GIVEN_valid_key_uri_invalid_cert_uri_WHEN_get_key_managers_THEN_succeed() throws Exception {
-        // scenario: valid cert is loaded onto HSM but invalid cert-path mentioned in config
+    void GIVEN_cert_uri_invalid_scheme_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        KeyManager[] keyManagers = service.getKeyManagers(PRIVATE_KEY_URI, new URI("invalid:uri"));
-        assertThat(keyManagers.length, Is.is(1));
-        assertThat(((X509KeyManager) keyManagers[0]).getPrivateKey("iotkey"), IsNull.notNullValue());
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs:object=foo;type=cert")));
+        assertThat(e.getMessage(), containsString("Invalid certificate URI"));
     }
 
     @Test
@@ -408,14 +405,12 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
-    void GIVEN_valid_key_uri_invalid_cert_uri_WHEN_get_mqtt_builder_THEN_succeed() throws Exception {
-        // scenario: valid cert is loaded onto HSM but invalid cert-path mentioned in config
+    void GIVEN_cert_uri_invalid_scheme_WHEN_get_mqtt_builder_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        try (AwsIotMqttConnectionBuilder builder = service.getMqttConnectionBuilder(PRIVATE_KEY_URI,
-                new URI("invalid:uri"))) {
-            assertThat(builder, IsNull.notNullValue());
-        }
+        Exception e = assertThrows(MqttConnectionProviderException.class,
+                () -> service.getMqttConnectionBuilder(PRIVATE_KEY_URI, new URI("file:///path/to/cert")));
+        assertThat(e.getMessage(), containsString("Invalid certificate URI"));
     }
 }

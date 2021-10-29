@@ -298,6 +298,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private KeyStore getKeyStore(URI privateKeyUri, URI certificateUri) throws KeyLoadingException {
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
+        validateCertificateUri(certificateUri, keyUri);
 
         String keyLabel = keyUri.getLabel();
         char[] password = userPin;
@@ -321,7 +322,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         checkServiceAvailability();
 
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
-        validateCertificateUri(certificateUri, keyUri);
 
         String keyLabel = keyUri.getLabel();
         char[] password = userPin;
@@ -352,7 +352,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         String certificateContent;
         try {
             keyUri = validatePrivateKeyUri(privateKeyUri);
-            validateCertificateUri(certificateUri, keyUri);
             KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
             X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
             certificateContent = getX509CertificateContentString(certificate);

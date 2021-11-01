@@ -264,7 +264,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs:object=foo;type=cert")));
-        assertThat(e.getMessage(), containsString("Unrecognized certificate URI scheme pkcs for provider"));
+        assertThat(e.getMessage(), containsString("Invalid certificate URI"));
     }
 
     @Test
@@ -399,8 +399,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        try (AwsIotMqttConnectionBuilder builder = service.getMqttConnectionBuilder(PRIVATE_KEY_URI,
-                new URI("file:///path/to/cert"))) {
+        try (AwsIotMqttConnectionBuilder builder = service.getMqttConnectionBuilder(PRIVATE_KEY_URI, CERTIFICATE_URI)) {
             assertThat(builder, IsNull.notNullValue());
         }
     }
@@ -411,7 +410,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(MqttConnectionProviderException.class,
-                () -> service.getMqttConnectionBuilder(PRIVATE_KEY_URI, new URI("pkcs11:object=foo;type=cert")));
-        assertThat(e.getMessage(), containsString("Only file based certificate is supported"));
+                () -> service.getMqttConnectionBuilder(PRIVATE_KEY_URI, new URI("file:///path/to/cert")));
+        assertThat(e.getMessage(), containsString("Invalid certificate URI"));
     }
 }

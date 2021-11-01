@@ -20,7 +20,6 @@ import com.aws.greengrass.security.exceptions.ServiceProviderConflictException;
 import com.aws.greengrass.security.exceptions.ServiceUnavailableException;
 import com.aws.greengrass.security.provider.pkcs11.exceptions.ProviderInstantiationException;
 import com.aws.greengrass.util.Coerce;
-import com.aws.greengrass.util.EncryptionUtils;
 import com.aws.greengrass.util.Utils;
 import software.amazon.awssdk.crt.CrtRuntimeException;
 import software.amazon.awssdk.crt.io.Pkcs11Lib;
@@ -34,20 +33,21 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URI;
-import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.ProviderException;
 import java.security.Security;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import javax.inject.Inject;
@@ -66,12 +66,13 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     public static final String USER_PIN_TOPIC = "userPin";
 
     private static final String PKCS11_TYPE = "PKCS11";
-    private static final String FILE_SCHEME = "file";
     private static final String PKCS11_TYPE_PRIVATE = "private";
     private static final String PKCS11_TYPE_CERT = "cert";
     private static final String CONFIGURE_METHOD_NAME = "configure";
     private static final String GET_PROVIDER_METHOD_NAME = "getProvider";
     private static final String SUNPKCS11_PROVIDER = "SunPKCS11";
+    private static final String BEGIN_CERT = "-----BEGIN CERTIFICATE-----";
+    private static final String END_CERT = "-----END CERTIFICATE-----";
 
     private final SecurityService securityService;
 
@@ -297,14 +298,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     private KeyStore getKeyStore(URI privateKeyUri, URI certificateUri) throws KeyLoadingException {
         Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
-        if (isUriTypeOf(certificateUri, Pkcs11URI.PKCS11_SCHEME)) {
-            validateCertificateUri(new Pkcs11URI(certificateUri), keyUri);
-        } else {
-            if (!isUriTypeOf(certificateUri, FILE_SCHEME)) {
-                throw new KeyLoadingException(String.format("Unrecognized certificate URI scheme %s for provider %s",
-                        certificateUri.getScheme(), PKCS11_SERVICE_NAME));
-            }
-        }
+        validateCertificateUri(certificateUri, keyUri);
 
         String keyLabel = keyUri.getLabel();
         char[] password = userPin;
@@ -313,11 +307,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             ks.load(null, password);
             if (!ks.containsAlias(keyLabel)) {
                 throw new KeyLoadingException(String.format("Key %s does not exist", keyLabel));
-            }
-            if (isUriTypeOf(certificateUri, FILE_SCHEME)) {
-                List<X509Certificate> certChain = EncryptionUtils.loadX509Certificates(Paths.get(certificateUri));
-                ks.setKeyEntry(keyLabel, ks.getKey(keyLabel, password), password,
-                        certChain.toArray(new Certificate[0]));
             }
             return ks;
         } catch (GeneralSecurityException | IOException e) {
@@ -344,11 +333,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             }
             // We cannot easily extract the public key from PKCS11, so instead we will get it from the
             // certificate. The certificate *must* be signed by the private key for this to work correctly.
-            Certificate cert = ks.getCertificate(keyLabel);
-            if (cert == null) {
-                throw new KeyLoadingException(
-                        String.format("Unable to load certificate associated with private key %s", keyLabel));
-            }
+            Certificate cert = getCertificateFromKeyStore(ks, keyLabel);
 
             return new KeyPair(cert.getPublicKey(), (PrivateKey) pk);
         } catch (GeneralSecurityException e) {
@@ -364,20 +349,20 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         checkServiceAvailability();
 
         Pkcs11URI keyUri;
+        String certificateContent;
         try {
             keyUri = validatePrivateKeyUri(privateKeyUri);
-        } catch (KeyLoadingException e) {
+            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
+            X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
+            certificateContent = getX509CertificateContentString(certificate);
+        } catch (KeyLoadingException | KeyStoreException | CertificateEncodingException e) {
             throw new MqttConnectionProviderException(e.getMessage(), e);
-        }
-        if (!isUriTypeOf(certificateUri, FILE_SCHEME)) {
-            throw new MqttConnectionProviderException(String.format("Only file based certificate is supported for "
-                            + "getting mqtt connection builder in provider %s", PKCS11_SERVICE_NAME));
         }
         try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
                 .withSlotId(slotId)
                 .withUserPin(userPin == null ? null : String.valueOf(userPin))
                 .withPrivateKeyObjectLabel(keyUri.getLabel())
-                .withCertificateFilePath(Paths.get(certificateUri).toString())) {
+                .withCertificateFileContents(certificateContent)) {
             return AwsIotMqttConnectionBuilder.newMtlsPkcs11Builder(options);
         }
     }
@@ -400,24 +385,27 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         return keyUri;
     }
 
-    private void validateCertificateUri(Pkcs11URI certUri, Pkcs11URI keyUri) throws KeyLoadingException {
-        if (!PKCS11_TYPE_CERT.equals(certUri.getType())) {
-            throw new KeyLoadingException(String.format("Certificate must be a PKCS11 %s type, but was %s",
-                    PKCS11_TYPE_CERT, certUri.getType()));
+    private Pkcs11URI validateCertificateUri(URI certUri, Pkcs11URI keyUri) throws KeyLoadingException {
+        Pkcs11URI certPkcs11Uri;
+        try {
+            certPkcs11Uri = new Pkcs11URI(certUri);
+        } catch (IllegalArgumentException e) {
+            throw new KeyLoadingException(String.format("Invalid certificate URI: %s", certUri), e);
         }
-        if (!keyUri.getLabel().equals(certUri.getLabel())) {
+        if (!PKCS11_TYPE_CERT.equals(certPkcs11Uri.getType())) {
+            throw new KeyLoadingException(String.format("Certificate must be a PKCS11 %s type, but was %s",
+                    PKCS11_TYPE_CERT, certPkcs11Uri.getType()));
+        }
+        if (!keyUri.getLabel().equals(certPkcs11Uri.getLabel())) {
             throw new KeyLoadingException("Private key and certificate labels must be the same");
         }
+        return certPkcs11Uri;
     }
 
     private void checkServiceAvailability() throws ServiceUnavailableException {
         if (getState() != State.RUNNING) {
             throw new ServiceUnavailableException("PKCS11 crypto key service is unavailable");
         }
-    }
-
-    private boolean isUriTypeOf(URI uri, String type) {
-        return type.equalsIgnoreCase(uri.getScheme());
     }
 
     @Override
@@ -457,5 +445,26 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             }
         }
         return Collections.emptyMap();
+    }
+
+    private Certificate getCertificateFromKeyStore(KeyStore keyStore, String certLabel)
+            throws KeyStoreException, KeyLoadingException {
+        Certificate cert = keyStore.getCertificate(certLabel);
+        if (cert == null) {
+            throw new KeyLoadingException(
+                    String.format("Unable to load certificate with the label %s", certLabel));
+        }
+        return cert;
+    }
+
+    private String getX509CertificateContentString(X509Certificate certificate) throws CertificateEncodingException {
+        Base64.Encoder encoder = Base64.getEncoder();
+        StringBuilder sb = new StringBuilder(BEGIN_CERT)
+                .append(System.lineSeparator())
+                .append(encoder.encodeToString(certificate.getEncoded()))
+                .append(System.lineSeparator())
+                .append(END_CERT)
+                .append(System.lineSeparator());
+        return sb.toString();
     }
 }

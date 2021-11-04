@@ -7,22 +7,24 @@ This plugin is meant to run with [Greengrass Nucleus](https://github.com/aws-gre
 This plugin takes the following parameters
 
 ### Required
-* **name:** The name of the configuration.
-* **library:** Path to PKCS11 library on the device 
-* **slot:** Slot ID of the slot where the key is imported. Not to be confused with slot index.
-* **userPin:** User pin used during importing the key to the slot. 
+* **name:** A unique string identifier for the configuration.
+* **library:** Absolute path to PKCS11 library on the device.
+* **slot:** Slot ID of the slot which holds the key. Not to be confused with slot index or slot label.
+* **userPin:** User pin needed to access the slot. 
 
 ## Start Greengrass with PKCS11 provider plugin
 ### Setup
 
 * Thing private key and certificate need to be imported to the TPM on the device.
 * config.yaml containing the following additional config
+
+### Sample way to bootstrap Greengrass nucleus with the PKCS11 plugin
 ```
 aws.greengrass.crypto.Pkcs11Provider:
     configuration:
       name: sample_name
-      library: /path/to/library
-      slot: 0000
+      library: /absolute/path/to/library
+      slot: 0
       userPin: abc123
 ```
 Command to start Greengrass: 
@@ -51,7 +53,7 @@ Create a deployment and merge the parameters as shown
     "aws.greengrass.crypto.Pkcs11Provider": {
       "componentVersion": "1.0.0",
       "configurationUpdate": {
-        "merge": "{\"name\":\"sample_name\",\"library\":\"/path/to/library\",\"slot\":0000,\"userPin\":\"abc123\"}"
+        "merge": "{\"name\":\"sample_name\",\"library\":\"/absolute/path/to/library\",\"slot\":0,\"userPin\":\"abc123\"}"
       }
     }
   }

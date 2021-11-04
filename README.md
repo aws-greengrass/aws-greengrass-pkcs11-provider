@@ -1,6 +1,6 @@
 ## AWS Greengrass PKCS11 Provider
 
-This plugin is meant to run with [Greengrass Nucleus](https://github.com/aws-greengrass/aws-greengrass-nucleus) as a PKCS11 provider. The plugin provides the ability to use Trusted Platform Module (TPM) to store the thing's private key and certificate and use it to connect with AWS IoT and other AWS services.
+This plugin is meant to run with [Greengrass Nucleus](https://github.com/aws-greengrass/aws-greengrass-nucleus) as a PKCS11 provider. The plugin provides the ability to use Trusted Platform Module (TPM) to store the things private key and certificate and use it to connect with AWS IoT and other AWS services.
 
 ## Parameters
 

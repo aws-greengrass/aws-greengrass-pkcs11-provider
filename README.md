@@ -24,7 +24,7 @@ aws.greengrass.crypto.Pkcs11Provider:
     configuration:
       name: sample_name
       library: /absolute/path/to/library
-      slot: 0
+      slot: 12345
       userPin: abc123
 ```
 Command to start Greengrass: 
@@ -53,7 +53,7 @@ Create a deployment and merge the parameters as shown
     "aws.greengrass.crypto.Pkcs11Provider": {
       "componentVersion": "1.0.0",
       "configurationUpdate": {
-        "merge": "{\"name\":\"sample_name\",\"library\":\"/absolute/path/to/library\",\"slot\":0,\"userPin\":\"abc123\"}"
+        "merge": "{\"name\":\"sample_name\",\"library\":\"/absolute/path/to/library\",\"slot\":12345,\"userPin\":\"abc123\"}"
       }
     }
   }

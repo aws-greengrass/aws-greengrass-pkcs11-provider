@@ -201,7 +201,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             pkcs11Lib = new Pkcs11Lib(libraryPath);
             return true;
         } catch (CrtRuntimeException e) {
-            logger.atError().setCause(e).log("Can't create new PKCS11 lib");
+            logger.atError().setCause(e).log(getErrorMessageForRootCause(e, "Cannot create new PKCS11 lib."));
             return false;
         }
     }
@@ -227,7 +227,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         try {
             return createNewProvider(configuration);
         } catch (ProviderInstantiationException e) {
-            logger.atError().setCause(e).log("Can't create new PKCS11 JCA provider");
+            logger.atError().setCause(e).log(getErrorMessageForRootCause(e, "Cannot create new PKCS11 JCA provider."));
             return null;
         }
     }
@@ -290,9 +290,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             keyManagerFactory.init(ks, null);
             return keyManagerFactory.getKeyManagers();
         } catch (GeneralSecurityException e) {
-            throw new KeyLoadingException(
-                    String.format("Failed to get key manager for key %s and certificate %s", privateKeyUri,
-                            certificateUri), e);
+            String errorMessage = getErrorMessageForRootCause(e,
+                    String.format("Failed to get key manager for key %s and certificate %s",
+                            privateKeyUri, certificateUri));
+            logger.atError().setCause(e).log(errorMessage);
+            throw new KeyLoadingException(errorMessage, e);
         }
     }
 
@@ -306,8 +308,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), PKCS11_TYPE, keyLabel);
             ks.load(null, password);
             if (!ks.containsAlias(keyLabel)) {
-                throw new KeyLoadingException(String.format("Key %s does not exist", keyLabel));
+                throw new KeyLoadingException(String.format("Private key or certificate with label %s does not exist. "
+                        + "Make sure to import certificate into PKCS11 device with the same label and id "
+                        + "as the private key.", keyLabel));
             }
+            logger.atDebug().log(String.format("Load KeyStore with private key %s", keyLabel));
             return ks;
         } catch (GeneralSecurityException | IOException e) {
             throw new KeyLoadingException(
@@ -337,9 +342,11 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
             return new KeyPair(cert.getPublicKey(), (PrivateKey) pk);
         } catch (GeneralSecurityException e) {
-            throw new KeyLoadingException(
+            String errorMessage = getErrorMessageForRootCause(e,
                     String.format("Failed to get key pair for key %s and certificate %s",
-                            privateKeyUri, certificateUri), e);
+                            privateKeyUri, certificateUri));
+            logger.atError().setCause(e).log(errorMessage);
+            throw new KeyLoadingException(errorMessage, e);
         }
     }
 
@@ -356,7 +363,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
             certificateContent = getX509CertificateContentString(certificate);
         } catch (KeyLoadingException | KeyStoreException | CertificateEncodingException e) {
-            throw new MqttConnectionProviderException(e.getMessage(), e);
+            String errorMessage = getErrorMessageForRootCause(e, e.getMessage());
+            logger.atError().setCause(e).log(errorMessage);
+            throw new MqttConnectionProviderException(errorMessage, e);
         }
         try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
                 .withSlotId(slotId)
@@ -466,5 +475,22 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
                 .append(END_CERT)
                 .append(System.lineSeparator());
         return sb.toString();
+    }
+
+    private String getErrorMessageForRootCause(Exception exception, String baseMessage) {
+        String rootCause = Utils.getUltimateMessage(exception);
+        if (rootCause.contains("AWS_IO_SHARED_LIBRARY_LOAD_FAILURE")) {
+            return String.join(" ", baseMessage,
+                    String.format("Unable to load PKCS11 shared library: %s", libraryPath));
+        }
+        if (rootCause.contains("CKR_SLOT_ID_INVALID")) {
+            return String.join(" ", baseMessage,
+                    String.format("Invalid PKCS11 slot id: %s", slotId));
+        }
+        if (rootCause.contains("CKR_PIN_INCORRECT")) {
+            return String.join(" ", baseMessage,
+                    String.format("Incorrect PKCS11 user-pin: %s", String.valueOf(userPin)));
+        }
+        return String.join(" ", baseMessage, rootCause);
     }
 }

@@ -425,6 +425,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 () -> service.getMqttConnectionBuilder(URI.create("pkcs11:object=absent_key;type=private"),
                         URI.create("pkcs11:object=absent_key;type=cert")));
         assertThat(e.getMessage(), containsString("Private key or certificate with label absent_key does not exist"));
-        assertThat(e.getMessage(), containsString("Make sure to import certificate into PKCS11 device with the same label and id as the private key"));
+        assertThat(e.getMessage(), containsString("Make sure to import both private key and the certificate "
+                + "into PKCS11 device with the same label and id."));
     }
 }

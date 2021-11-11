@@ -201,7 +201,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             pkcs11Lib = new Pkcs11Lib(libraryPath);
             return true;
         } catch (CrtRuntimeException e) {
-            logger.atError().setCause(e).log(getErrorMessageForRootCause(e, "Cannot create new PKCS11 lib."));
+            logger.atError().setCause(e).log(getErrorMessageForRootCause(e, "Cannot initialize the PKCS11 lib."));
             return false;
         }
     }
@@ -293,7 +293,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             String errorMessage = getErrorMessageForRootCause(e,
                     String.format("Failed to get key manager for key %s and certificate %s",
                             privateKeyUri, certificateUri));
-            logger.atError().setCause(e).log(errorMessage);
             throw new KeyLoadingException(errorMessage, e);
         }
     }
@@ -309,10 +308,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             ks.load(null, password);
             if (!ks.containsAlias(keyLabel)) {
                 throw new KeyLoadingException(String.format("Private key or certificate with label %s does not exist. "
-                        + "Make sure to import certificate into PKCS11 device with the same label and id "
-                        + "as the private key.", keyLabel));
+                        + "Make sure to import both private key and the certificate into PKCS11 device "
+                        + "with the same label and id.", keyLabel));
             }
-            logger.atDebug().log(String.format("Load KeyStore with private key %s", keyLabel));
+            logger.atDebug().log(String.format("Successfully loaded KeyStore with private key %s", keyLabel));
             return ks;
         } catch (GeneralSecurityException | IOException e) {
             throw new KeyLoadingException(
@@ -345,7 +344,6 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             String errorMessage = getErrorMessageForRootCause(e,
                     String.format("Failed to get key pair for key %s and certificate %s",
                             privateKeyUri, certificateUri));
-            logger.atError().setCause(e).log(errorMessage);
             throw new KeyLoadingException(errorMessage, e);
         }
     }
@@ -363,9 +361,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
             certificateContent = getX509CertificateContentString(certificate);
         } catch (KeyLoadingException | KeyStoreException | CertificateEncodingException e) {
-            String errorMessage = getErrorMessageForRootCause(e, e.getMessage());
-            logger.atError().setCause(e).log(errorMessage);
-            throw new MqttConnectionProviderException(errorMessage, e);
+            logger.atError().log(getErrorMessageForRootCause(e));
+            throw new MqttConnectionProviderException(e.getMessage(), e);
         }
         try (TlsContextPkcs11Options options = new TlsContextPkcs11Options(getPkcs11Lib())
                 .withSlotId(slotId)
@@ -477,20 +474,22 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         return sb.toString();
     }
 
+    private String getErrorMessageForRootCause(Exception exception) {
+        return getErrorMessageForRootCause(exception, "");
+    }
+
     private String getErrorMessageForRootCause(Exception exception, String baseMessage) {
         String rootCause = Utils.getUltimateMessage(exception);
         if (rootCause.contains("AWS_IO_SHARED_LIBRARY_LOAD_FAILURE")) {
-            return String.join(" ", baseMessage,
-                    String.format("Unable to load PKCS11 shared library: %s", libraryPath));
+            rootCause = String.format("Unable to load PKCS11 shared library: %s", libraryPath);
         }
         if (rootCause.contains("CKR_SLOT_ID_INVALID")) {
-            return String.join(" ", baseMessage,
-                    String.format("Invalid PKCS11 slot id: %s", slotId));
+            rootCause = String.format("PKCS11 slot: %s is invalid. Please ensure it is a valid slot-id "
+                    + "and not the slot-index or slot-label", slotId);
         }
         if (rootCause.contains("CKR_PIN_INCORRECT")) {
-            return String.join(" ", baseMessage,
-                    String.format("Incorrect PKCS11 user-pin: %s", String.valueOf(userPin)));
+            rootCause =  String.format("userPin: %s is incorrect for PKCS11 slot %s", String.valueOf(userPin), slotId);
         }
-        return String.join(" ", baseMessage, rootCause);
+        return Utils.isEmpty(baseMessage) ? rootCause : String.join(" ", baseMessage, rootCause);
     }
 }

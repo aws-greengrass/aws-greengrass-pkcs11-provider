@@ -285,7 +285,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         Exception e = assertThrows(KeyLoadingException.class, () -> service
                 .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"),
                         new URI("pkcs11:object=foo-bar;type=cert")));
-        assertThat(e.getMessage(), containsString("Key foo-bar does not exist"));
+        assertThat(e.getMessage(), containsString("Private key or certificate with label foo-bar does not exist"));
     }
 
     @Test
@@ -405,12 +405,27 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
-    void GIVEN_cert_uri_invalid_scheme_WHEN_get_mqtt_builder_THEN_throw_exception() throws Exception {
+    void GIVEN_cert_uri_invalid_scheme_WHEN_get_mqtt_builder_THEN_throw_exception(ExtensionContext context) throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, IllegalArgumentException.class);
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(MqttConnectionProviderException.class,
                 () -> service.getMqttConnectionBuilder(PRIVATE_KEY_URI, new URI("file:///path/to/cert")));
         assertThat(e.getMessage(), containsString("Invalid certificate URI"));
+    }
+
+    @Test
+    void GIVEN_key_absent_WHEN_get_mqtt_builder_THEN_exception_with_useful_message(ExtensionContext context) throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, KeyLoadingException.class);
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(MqttConnectionProviderException.class,
+                () -> service.getMqttConnectionBuilder(URI.create("pkcs11:object=absent_key;type=private"),
+                        URI.create("pkcs11:object=absent_key;type=cert")));
+        assertThat(e.getMessage(), containsString("Private key or certificate with label absent_key does not exist"));
+        assertThat(e.getMessage(), containsString("Make sure to import both private key and the certificate "
+                + "into PKCS11 device with the same label and id."));
     }
 }

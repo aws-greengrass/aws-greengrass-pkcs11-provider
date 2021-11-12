@@ -32,7 +32,7 @@ Command to start Greengrass:
 sudo -E java -Droot="<root>" -Dlog.store=FILE \
   -jar ./GreengrassCore/lib/Greengrass.jar \
   --aws-region <region> \
-  --initial-config config.yaml \
+  --init-config config.yaml \
   --component-default-user ggc_user:ggc_group \
   --setup-system-service true
   --trusted-plugin <path_to_plugin>/aws.greengrass.crypto.Pkcs11Provider.jar

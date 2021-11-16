@@ -133,6 +133,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         this.securityService = securityService;
     }
 
+    @SuppressWarnings("PMD.PreserveStackTrace")
     @Override
     protected void install() throws InterruptedException {
         try {
@@ -142,8 +143,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
             this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
         } catch (IllegalArgumentException e) {
-            throw new RuntimeException(String.format("Failed to install PKCSCryptoKeyService. "
-                    + "Please check the configuration for %s service in your configuration file", PKCS11_SERVICE_NAME));
+            throw new RuntimeException(String.format("Failed to install PKCS11CryptoKeyService. "
+                    + "Make sure that configuration format for %s service is valid.", PKCS11_SERVICE_NAME));
         }
         if (!initializePkcs11Lib() || !initializePkcs11Provider()) {
             serviceErrored("Can't initialize PKCS11");

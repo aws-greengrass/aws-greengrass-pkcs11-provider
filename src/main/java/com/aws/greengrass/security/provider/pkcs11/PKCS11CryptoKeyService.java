@@ -135,11 +135,16 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     @Override
     protected void install() throws InterruptedException {
-        super.install();
-        this.config.lookup(CONFIGURATION_CONFIG_KEY, NAME_TOPIC).subscribe(this::updateName);
-        this.config.lookup(CONFIGURATION_CONFIG_KEY, LIBRARY_TOPIC).subscribe(this::updateLibrary);
-        this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
-        this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
+        try {
+            super.install();
+            this.config.lookup(CONFIGURATION_CONFIG_KEY, NAME_TOPIC).subscribe(this::updateName);
+            this.config.lookup(CONFIGURATION_CONFIG_KEY, LIBRARY_TOPIC).subscribe(this::updateLibrary);
+            this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
+            this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException(String.format("Failed to install PKCSCryptoKeyService. "
+                    + "Please check the configuration for %s service in your configuration file", PKCS11_SERVICE_NAME));
+        }
         if (!initializePkcs11Lib() || !initializePkcs11Provider()) {
             serviceErrored("Can't initialize PKCS11");
         }

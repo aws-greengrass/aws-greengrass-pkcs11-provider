@@ -11,9 +11,11 @@ import org.hamcrest.core.IsNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.net.URI;
 import java.net.URISyntaxException;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(GGExtension.class)
@@ -44,7 +46,9 @@ class Pkcs11URITest {
 
     @Test
     void GIVEN_file_uri_WHEN_create_object_THEN_throw_exception() {
-        assertThrows(IllegalArgumentException.class,  () -> new Pkcs11URI("file:///path/to/file"));
+        String path = "file:///path/to/file";
+        Exception e = assertThrows(IllegalArgumentException.class,  () -> new Pkcs11URI(URI.create(path)));
+        assertThat(e.getMessage(), containsString("URI scheme is not pkcs11: " + path));
     }
 
     @Test

@@ -41,7 +41,7 @@ public class Pkcs11URI {
     public Pkcs11URI(URI uri) {
         this.uri = uri;
         if (!PKCS11_SCHEME.equalsIgnoreCase(this.uri.getScheme())) {
-            throw new IllegalArgumentException(String.format("URI scheme part is not %s", PKCS11_SCHEME));
+            throw new IllegalArgumentException(String.format("URI scheme is not %s: %s", PKCS11_SCHEME, uri));
         }
         parseAttributes(this.uri.getSchemeSpecificPart());
     }

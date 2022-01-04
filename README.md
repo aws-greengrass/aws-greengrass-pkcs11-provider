@@ -16,9 +16,9 @@ This PKCS11 Provider takes the following parameters:
 ### Setup
 
 * Thing private key and certificate need to be imported to the TPM on the device.
-* config.yaml containing the following additional config
+* config.yaml containing the following additional config:
 
-### Sample way to bootstrap Greengrass nucleus with the PKCS11 plugin
+### Sample configuration to bootstrap Greengrass nucleus with the PKCS11 plugin
 ```
 aws.greengrass.crypto.Pkcs11Provider:
     configuration:
@@ -27,7 +27,7 @@ aws.greengrass.crypto.Pkcs11Provider:
       slot: 12345
       userPin: abc123
 ```
-Command to start Greengrass: 
+### Command to start Greengrass: 
 ```
 sudo -E java -Droot="<root>" -Dlog.store=FILE \
   -jar ./GreengrassCore/lib/Greengrass.jar \
@@ -45,7 +45,7 @@ sudo -E java -Droot="<root>" -Dlog.store=FILE \
 * Thing private key and certificate need to be imported to the TPM on the device.  
 
 
-Create a deployment and merge the parameters as shown
+Create a deployment and merge the parameters as shown below:
 ```
 {
   "targetArn": "<arn_of_target>",

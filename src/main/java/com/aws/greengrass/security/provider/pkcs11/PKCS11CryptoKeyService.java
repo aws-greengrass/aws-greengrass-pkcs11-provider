@@ -439,8 +439,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             logger.atTrace().log("PKCS11 slot id changes, requires bootstrap");
             return true;
         }
-        char[] updatedUserPin = newConfiguration.get(USER_PIN_TOPIC) == null ? null
-                : ((String) newConfiguration.get(USER_PIN_TOPIC)).toCharArray();
+        char[] updatedUserPin = Coerce.toString(newConfiguration.get(USER_PIN_TOPIC)) == null ? null
+                : Coerce.toString(newConfiguration.get(USER_PIN_TOPIC)).toCharArray();
         if (!Arrays.equals(userPin, updatedUserPin)) {
             logger.atTrace().log("PKCS11 user pin changes, requires bootstrap");
             return true;

@@ -5,6 +5,7 @@
 
 package com.aws.greengrass.security.provider.pkcs11;
 
+import com.aws.greengrass.config.ChildChanged;
 import com.aws.greengrass.config.Topic;
 import com.aws.greengrass.config.Topics;
 import com.aws.greengrass.config.WhatHappened;
@@ -74,6 +75,29 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private static final String BEGIN_CERT = "-----BEGIN CERTIFICATE-----";
     private static final String END_CERT = "-----END CERTIFICATE-----";
 
+    private final ChildChanged handleConfigChangeLambda = (whatHappened, node) -> {
+        if (whatHappened == WhatHappened.timestampUpdated || whatHappened == WhatHappened.interiorAdded) {
+            return;
+        }
+        logger.atDebug().kv("why", whatHappened).kv("node", node).log();
+        Topics configTopics = this.config.lookupTopics(CONFIGURATION_CONFIG_KEY);
+        if (whatHappened == WhatHappened.initialized) {
+            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+            updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
+            updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
+            updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
+            return;
+        }
+        if (node.childOf(LIBRARY_TOPIC)) {
+            updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
+        } else if (node.childOf(SLOT_ID_TOPIC)) {
+            updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
+        } else if (node.childOf(USER_PIN_TOPIC)) {
+            updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
+        } else if (node.childOf(NAME_TOPIC)) {
+            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+        }
+    };
     private final SecurityService securityService;
 
     private Provider pkcs11Provider;
@@ -138,10 +162,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     protected void install() throws InterruptedException {
         try {
             super.install();
-            this.config.lookup(CONFIGURATION_CONFIG_KEY, NAME_TOPIC).subscribe(this::updateName);
-            this.config.lookup(CONFIGURATION_CONFIG_KEY, LIBRARY_TOPIC).subscribe(this::updateLibrary);
-            this.config.lookup(CONFIGURATION_CONFIG_KEY, SLOT_ID_TOPIC).subscribe(this::updateSlotId);
-            this.config.lookup(CONFIGURATION_CONFIG_KEY, USER_PIN_TOPIC).subscribe(this::updateUserPin);
+            this.config.lookupTopics(CONFIGURATION_CONFIG_KEY).subscribe(this.handleConfigChangeLambda);
         } catch (IllegalArgumentException e) {
             throw new RuntimeException(String.format("Failed to install PKCS11CryptoKeyService. "
                     + "Make sure that configuration format for %s service is valid.", PKCS11_SERVICE_NAME));
@@ -165,37 +186,30 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
 
     private void updateName(WhatHappened what, Topic topic) {
-        if (topic != null && what != WhatHappened.timestampUpdated) {
-            this.name = Coerce.toString(topic);
-            if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
-                serviceErrored("Can't initialize PKCS11 JCA provider when name update");
-            }
+        this.name = Coerce.toString(topic);
+        if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
+            serviceErrored("Can't initialize PKCS11 JCA provider when name update");
         }
     }
 
     private void updateLibrary(WhatHappened what, Topic topic) {
-        if (topic != null && what != WhatHappened.timestampUpdated) {
-            this.libraryPath = Coerce.toString(topic);
-            if (what != WhatHappened.initialized && (!initializePkcs11Lib() || !initializePkcs11Provider())) {
-                serviceErrored("Can't initialize PKCS11 when lib update");
-            }
+        this.libraryPath = Coerce.toString(topic);
+        if (what != WhatHappened.initialized && (!initializePkcs11Lib() || !initializePkcs11Provider())) {
+            serviceErrored("Can't initialize PKCS11 when lib update");
         }
     }
 
     private void updateSlotId(WhatHappened what, Topic topic) {
-        if (topic != null && what != WhatHappened.timestampUpdated) {
-            this.slotId = Coerce.toInt(topic);
-            if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
-                serviceErrored("Can't initialize PKCS11 JCA provider when slot update");
-            }
+        this.slotId = Coerce.toInt(topic);
+        if (what != WhatHappened.initialized && !initializePkcs11Provider()) {
+            serviceErrored("Can't initialize PKCS11 JCA provider when slot update");
         }
     }
 
+    @SuppressWarnings("PMD.UnusedFormalParameter")
     private void updateUserPin(WhatHappened what, Topic topic) {
-        if (topic != null && what != WhatHappened.timestampUpdated) {
-            String userPinStr = Coerce.toString(topic);
-            this.userPin = userPinStr == null ? null : userPinStr.toCharArray();
-        }
+        String userPinStr = Coerce.toString(topic);
+        this.userPin = userPinStr == null ? null : userPinStr.toCharArray();
     }
 
     private synchronized boolean initializePkcs11Lib() {

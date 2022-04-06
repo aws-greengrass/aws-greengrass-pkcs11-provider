@@ -5,6 +5,7 @@
 
 package com.aws.greengrass.security.provider.pkcs11;
 
+import com.aws.greengrass.config.ChildChanged;
 import com.aws.greengrass.config.Topic;
 import com.aws.greengrass.config.Topics;
 import com.aws.greengrass.config.WhatHappened;
@@ -74,6 +75,29 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     private static final String BEGIN_CERT = "-----BEGIN CERTIFICATE-----";
     private static final String END_CERT = "-----END CERTIFICATE-----";
 
+    private final ChildChanged handleConfigChangeLambda = (whatHappened, node) -> {
+        if (whatHappened == WhatHappened.timestampUpdated || whatHappened == WhatHappened.interiorAdded) {
+            return;
+        }
+        logger.atDebug().kv("why", whatHappened).kv("node", node).log();
+        Topics configTopics = this.config.lookupTopics(CONFIGURATION_CONFIG_KEY);
+        if (whatHappened == WhatHappened.initialized) {
+            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+            updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
+            updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
+            updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
+            return;
+        }
+        if (node.childOf(LIBRARY_TOPIC)) {
+            updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
+        } else if (node.childOf(SLOT_ID_TOPIC)) {
+            updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
+        } else if (node.childOf(USER_PIN_TOPIC)) {
+            updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
+        } else if (node.childOf(NAME_TOPIC)) {
+            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+        }
+    };
     private final SecurityService securityService;
 
     private Provider pkcs11Provider;
@@ -138,29 +162,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     protected void install() throws InterruptedException {
         try {
             super.install();
-            this.config.lookupTopics(CONFIGURATION_CONFIG_KEY).subscribe((whatHappened, node) -> {
-                if (whatHappened == WhatHappened.timestampUpdated || whatHappened == WhatHappened.interiorAdded) {
-                    return;
-                }
-                logger.atDebug().kv("why", whatHappened).kv("node", node).log();
-                Topics configTopics = this.config.lookupTopics(CONFIGURATION_CONFIG_KEY);
-                if (whatHappened == WhatHappened.initialized) {
-                    updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
-                    updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
-                    updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
-                    updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
-                    return;
-                }
-                if (node.childOf(LIBRARY_TOPIC)) {
-                    updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
-                } else if (node.childOf(SLOT_ID_TOPIC)) {
-                    updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
-                } else if (node.childOf(USER_PIN_TOPIC)) {
-                    updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
-                } else if (node.childOf(NAME_TOPIC)) {
-                    updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
-                }
-            });
+            this.config.lookupTopics(CONFIGURATION_CONFIG_KEY).subscribe(this.handleConfigChangeLambda);
         } catch (IllegalArgumentException e) {
             throw new RuntimeException(String.format("Failed to install PKCS11CryptoKeyService. "
                     + "Make sure that configuration format for %s service is valid.", PKCS11_SERVICE_NAME));

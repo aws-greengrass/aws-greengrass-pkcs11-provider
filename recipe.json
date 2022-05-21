@@ -1,0 +1,27 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "{COMPONENT_NAME}",
+  "ComponentVersion": "{COMPONENT_VERSION}",
+  "ComponentType": "aws.greengrass.plugin",
+  "ComponentDescription": "The pkcs11 provider component is the implementation of CryptoKeySpi.It provides with SunPKCS11 an JCA provider we choose to bridge between JCA/JCE APIs andPKCS#11 cryptographic APIs, translating the calls and conventions between the two",
+  "ComponentPublisher": "{COMPONENT_PUBLISHER}",
+  "ComponentDependencies": {
+    "aws.greengrass.Nucleus": {
+      "VersionRequirement": ">=2.5.3 <2.7.0",
+      "DependencyType": "SOFT"
+    }
+  },
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "linux"
+      },
+      "Lifecycle": {},
+      "Artifacts": [
+        {
+          "URI": "s3://aws.greengrass.crypto.Pkcs11Provider.jar"
+        }
+      ]
+    }
+  ]
+}

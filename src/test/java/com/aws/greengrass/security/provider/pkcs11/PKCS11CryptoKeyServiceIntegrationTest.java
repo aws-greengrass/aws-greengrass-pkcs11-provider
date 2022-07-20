@@ -205,6 +205,17 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
+    void GIVEN_service_in_error_WHEN_getCertificateChain_THEN_throw_unavailable_exception(ExtensionContext context)
+            throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, PKCS11Exception.class);
+
+        startService(false, State.ERRORED);
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        assertThrows(ServiceUnavailableException.class, () -> service.getCertificateChain(PRIVATE_KEY_URI, CERTIFICATE_URI));
+    }
+
+    @Test
     void GIVEN_illegal_key_uri_scheme_WHEN_get_key_managers_THEN_throw_exception(ExtensionContext context)
             throws Exception {
         ignoreExceptionUltimateCauseOfType(context, IllegalArgumentException.class);
@@ -214,6 +225,19 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(new URI("file:///path/to/file"), CERTIFICATE_URI));
+        assertThat(e.getMessage(), containsString("Invalid private key URI"));
+    }
+
+    @Test
+    void GIVEN_illegal_key_uri_scheme_WHEN_getCertificateChain_THEN_throw_exception(ExtensionContext context)
+            throws Exception {
+        ignoreExceptionUltimateCauseOfType(context, IllegalArgumentException.class);
+
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getCertificateChain(new URI("file:///path/to/file"), CERTIFICATE_URI));
         assertThat(e.getMessage(), containsString("Invalid private key URI"));
     }
 
@@ -228,12 +252,33 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
+    void GIVEN_key_uri_empty_label_WHEN_getCertificateChain_THEN_throw_exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getCertificateChain(new URI("pkcs11:type=private"), CERTIFICATE_URI));
+        assertThat(e.getMessage(), containsString("Empty key label"));
+    }
+
+
+    @Test
     void GIVEN_key_uri_empty_type_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
         Exception e = assertThrows(KeyLoadingException.class,
                 () -> service.getKeyManagers(new URI("pkcs11:object=foo-bar"), CERTIFICATE_URI));
+        assertThat(e.getMessage(), containsString("Private key must be a PKCS11 private type, but was null"));
+    }
+
+    @Test
+    void GIVEN_key_uri_empty_type_WHEN_getCertificateChain_THEN_throw_exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getCertificateChain(new URI("pkcs11:object=foo-bar"), CERTIFICATE_URI));
         assertThat(e.getMessage(), containsString("Private key must be a PKCS11 private type, but was null"));
     }
 
@@ -278,6 +323,16 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
+    void GIVEN_valid_pkcs11_uri_WHEN_getCertificateChain_THEN_succeed() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        List<X509Certificate> certificates = service.getCertificateChain(PRIVATE_KEY_URI, CERTIFICATE_URI);
+        assertThat(certificates.size(), Is.is(1));
+        assertThat(certificates.get(0), IsNull.notNullValue());
+    }
+
+    @Test
     void GIVEN_not_existed_key_WHEN_get_key_managers_THEN_return_empty_key_manager() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
@@ -286,6 +341,28 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                 .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"),
                         new URI("pkcs11:object=foo-bar;type=cert")));
         assertThat(e.getMessage(), containsString("Private key or certificate with label foo-bar does not exist"));
+    }
+
+    @Test
+    void GIVEN_not_existed_key_WHEN_getCertificateChain_THEN_throw_Exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class, () -> service
+                .getCertificateChain(new URI("pkcs11:object=foo-bar;type=private"),
+                        new URI("pkcs11:object=foo-bar;type=cert")));
+        assertThat(e.getMessage(), containsString("Private key or certificate with label foo-bar does not exist"));
+    }
+
+    @Test
+    void GIVEN_key_cert_different_label_WHEN_getCertificateChain_THEN_throw_Exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class, () -> service
+                .getCertificateChain(PRIVATE_KEY_URI,
+                        new URI("pkcs11:object=foo-bar;type=cert")));
+        assertThat(e.getMessage(), containsString("Private key and certificate labels must be the same"));
     }
 
     @Test

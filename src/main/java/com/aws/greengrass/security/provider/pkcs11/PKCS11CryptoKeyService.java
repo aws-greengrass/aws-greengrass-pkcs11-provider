@@ -49,11 +49,13 @@ import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import javax.inject.Inject;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.X509KeyManager;
 
 import static com.aws.greengrass.componentmanager.KernelConfigResolver.CONFIGURATION_CONFIG_KEY;
 
@@ -82,7 +84,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         logger.atDebug().kv("why", whatHappened).kv("node", node).log();
         Topics configTopics = this.config.lookupTopics(CONFIGURATION_CONFIG_KEY);
         if (whatHappened == WhatHappened.initialized) {
-            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+            updateName(whatHappened, configTopics.lookup(NAME_TOPIC));
             updateLibrary(whatHappened, configTopics.lookup(LIBRARY_TOPIC));
             updateSlotId(whatHappened, configTopics.lookup(SLOT_ID_TOPIC));
             updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
@@ -95,7 +97,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         } else if (node.childOf(USER_PIN_TOPIC)) {
             updateUserPin(whatHappened, configTopics.lookup(USER_PIN_TOPIC));
         } else if (node.childOf(NAME_TOPIC)) {
-            updateName(whatHappened,configTopics.lookup(NAME_TOPIC));
+            updateName(whatHappened, configTopics.lookup(NAME_TOPIC));
         }
     };
     private final SecurityService securityService;
@@ -113,6 +115,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
 
     /**
      * Creates a new SunPKCS11 Provider.
+     *
      * @param configuration str String used to configure the provider.
      * @return Provider
      * @throws ProviderInstantiationException if Provider cannot be instantiated.
@@ -308,7 +311,9 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             KeyManagerFactory keyManagerFactory =
                     KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             keyManagerFactory.init(ks, null);
+
             return keyManagerFactory.getKeyManagers();
+
         } catch (GeneralSecurityException e) {
             String errorMessage = getErrorMessageForRootCause(e,
                     String.format("Failed to get key manager for key %s and certificate %s",
@@ -440,6 +445,22 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
     }
 
     @Override
+    public List<X509Certificate> getCertificateChain(URI privateKeyUri, URI certificateUri)
+            throws ServiceUnavailableException, KeyLoadingException {
+        KeyManager[] km = getKeyManagers(privateKeyUri, certificateUri);
+        if (km.length != 1 || !(km[0] instanceof X509KeyManager)) {
+            logger.atError().kv("keyUri", privateKeyUri).kv("certificateUri", certificateUri)
+                    .log("Unable to find the key manager with the given URIs.");
+            return null;
+        }
+        X509KeyManager x509KeyManager = (X509KeyManager) km[0];
+        Pkcs11URI keyUri = new Pkcs11URI(privateKeyUri);
+        String keyLabel = keyUri.getLabel();
+        X509Certificate[] certChain = x509KeyManager.getCertificateChain(keyLabel);
+        return Arrays.asList(certChain);
+    }
+
+    @Override
     public boolean isBootstrapRequired(Map<String, Object> newServiceConfig) {
         if (super.isBootstrapRequired(newServiceConfig)) {
             return true;
@@ -508,7 +529,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
                     + "and not the slot-index or slot-label", slotId);
         }
         if (rootCause.contains("CKR_PIN_INCORRECT")) {
-            rootCause =  String.format("userPin: %s is incorrect for PKCS11 slot %s", String.valueOf(userPin), slotId);
+            rootCause = String.format("userPin: %s is incorrect for PKCS11 slot %s", String.valueOf(userPin), slotId);
         }
         return Utils.isEmpty(baseMessage) ? rootCause : String.join(" ", baseMessage, rootCause);
     }

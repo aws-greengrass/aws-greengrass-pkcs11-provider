@@ -167,13 +167,14 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             throw new RuntimeException(String.format("Failed to install PKCS11CryptoKeyService. "
                     + "Make sure that configuration format for %s service is valid.", PKCS11_SERVICE_NAME));
         }
-        if (!initializePkcs11Lib() || !initializePkcs11Provider()) {
-            serviceErrored("Can't initialize PKCS11");
-        }
     }
 
     @Override
     protected void startup() throws InterruptedException {
+        if (!initializePkcs11Lib() || !initializePkcs11Provider()) {
+            serviceErrored("Can't initialize PKCS11");
+            return;
+        }
         try {
             securityService.registerCryptoKeyProvider(this);
             securityService.registerMqttConnectionProvider(this);

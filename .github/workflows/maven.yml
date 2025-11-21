@@ -34,16 +34,16 @@ jobs:
           sudo -E mvn -ntp -U clean verify
           sudo chown -R runner target
       - name: Upload Failed Test Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         if: failure()
         with:
-          name: Failed Test Report
+          name: Failed Test Report Java ${{ matrix.java }}
           path: target/surefire-reports
       - name: Upload Coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         if: always()
         with:
-          name: Coverage Report
+          name: Coverage Report Java ${{ matrix.java }}
           path: target/jacoco-report
       - name: Convert Jacoco unit test report to Cobertura
         run: python3 .github/scripts/cover2cover.py target/jacoco-report/jacoco.xml src/main/java > target/jacoco-report/cobertura.xml

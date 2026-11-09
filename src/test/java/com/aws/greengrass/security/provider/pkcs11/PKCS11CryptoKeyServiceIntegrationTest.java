@@ -32,6 +32,11 @@ import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import software.amazon.awssdk.crt.CrtRuntimeException;
+import software.amazon.awssdk.crt.io.ClientBootstrap;
+import software.amazon.awssdk.crt.io.EventLoopGroup;
+import software.amazon.awssdk.crt.io.HostResolver;
+import software.amazon.awssdk.crt.mqtt.MqttClientConnection;
 import software.amazon.awssdk.iot.AwsIotMqttConnectionBuilder;
 import sun.security.pkcs11.wrapper.PKCS11;
 import sun.security.pkcs11.wrapper.PKCS11Constants;
@@ -39,10 +44,12 @@ import sun.security.pkcs11.wrapper.PKCS11Exception;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.Provider;
 import java.security.Security;
+import java.security.Signature;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
@@ -71,6 +78,9 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     private static final long TEST_TIME_OUT_SEC = 30L;
     private static final URI PRIVATE_KEY_URI = URI.create("pkcs11:object=iotkey;type=private");
     private static final URI CERTIFICATE_URI = URI.create("pkcs11:object=iotkey;type=cert");
+    // Key and certificate share a CKA_ID but have different labels, like on a YubiKey
+    private static final URI SEPARATE_LABEL_KEY_URI = URI.create("pkcs11:object=separate-key;type=private");
+    private static final URI SEPARATE_LABEL_CERT_URI = URI.create("pkcs11:object=separate-cert;type=cert");
 
     private Kernel kernel;
 
@@ -79,6 +89,7 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
 
     private static SoftHSM hsm;
     private static HSMToken token;
+    private static X509Certificate separateLabelCertificate;
 
     @BeforeAll
     static void beforeAll(@TempDir Path resourcePath) throws Exception {
@@ -90,6 +101,16 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
                         false);
         List<X509Certificate> certificateChain = EncryptionUtils.loadX509Certificates(cert.getLeft());
         hsm.importPrivateKey(cert.getRight().getPrivate(), certificateChain.toArray(new Certificate[0]), "iotkey", token);
+
+        Pair<Path, KeyPair> separateLabelCert =
+                EncryptionUtilsTest.generateCertificateFile(2048, true, resourcePath.resolve("separate-cert.pem"),
+                        false);
+        List<X509Certificate> separateLabelCertChain =
+                EncryptionUtils.loadX509Certificates(separateLabelCert.getLeft());
+        hsm.importPrivateKey(separateLabelCert.getRight().getPrivate(),
+                separateLabelCertChain.toArray(new Certificate[0]), "separate-cert", token);
+        hsm.setPrivateKeyLabel("separate-cert", "separate-key", token);
+        separateLabelCertificate = separateLabelCertChain.get(0);
     }
 
     @BeforeEach
@@ -101,6 +122,8 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     @AfterEach
     void afterEach() {
         kernel.shutdown();
+        // A service that ends up BROKEN never runs shutdown(), so its provider can stay in the JVM-wide JCA list
+        Security.removeProvider("SunPKCS11-" + token.getName());
     }
 
     @AfterAll
@@ -248,13 +271,59 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
-    void GIVEN_cert_uri_different_label_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+    void GIVEN_cert_uri_empty_label_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
         startServiceExpectRunning();
         PKCS11CryptoKeyService service =
                 (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
-        Exception e = assertThrows(KeyLoadingException.class, () -> service
-                .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"), new URI("pkcs11:object=foo;type=cert")));
-        assertThat(e.getMessage(), containsString("Private key and certificate labels must be the same"));
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs11:type=cert")));
+        assertThat(e.getMessage(), containsString("Empty certificate label"));
+    }
+
+    @Test
+    void GIVEN_cert_label_not_existed_WHEN_get_key_managers_THEN_throw_exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        Exception e = assertThrows(KeyLoadingException.class,
+                () -> service.getKeyManagers(PRIVATE_KEY_URI, new URI("pkcs11:object=foo;type=cert")));
+        assertThat(e.getMessage(),
+                containsString("Certificate with label foo does not exist, or no private key on the token has the "
+                        + "same CKA_ID as it"));
+    }
+
+    @Test
+    void GIVEN_key_and_cert_with_different_labels_WHEN_get_key_managers_THEN_succeed() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        KeyManager[] keyManagers = service.getKeyManagers(SEPARATE_LABEL_KEY_URI, SEPARATE_LABEL_CERT_URI);
+        assertThat(keyManagers.length, Is.is(1));
+        // SunPKCS11 names the key entry after the certificate label
+        X509KeyManager keyManager = (X509KeyManager) keyManagers[0];
+        assertThat(keyManager.getPrivateKey("separate-cert"), IsNull.notNullValue());
+        assertThat(keyManager.getCertificateChain("separate-cert")[0], Is.is(separateLabelCertificate));
+    }
+
+    @Test
+    void GIVEN_key_and_cert_with_different_labels_WHEN_get_key_pair_THEN_return_matching_key_pair()
+            throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        KeyPair keyPair = service.getKeyPair(SEPARATE_LABEL_KEY_URI, SEPARATE_LABEL_CERT_URI);
+        assertThat(keyPair.getPublic(), Is.is(separateLabelCertificate.getPublicKey()));
+
+        // Sign on the token and verify with the certificate's public key to prove the private key is its pair
+        byte[] data = "pkcs11-provider".getBytes(StandardCharsets.UTF_8);
+        Signature signer = Signature.getInstance("SHA256withRSA");
+        signer.initSign(keyPair.getPrivate());
+        signer.update(data);
+        byte[] signature = signer.sign();
+        Signature verifier = Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(separateLabelCertificate.getPublicKey());
+        verifier.update(data);
+        assertThat(verifier.verify(signature), Is.is(true));
     }
 
     @Test
@@ -285,7 +354,9 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         Exception e = assertThrows(KeyLoadingException.class, () -> service
                 .getKeyManagers(new URI("pkcs11:object=foo-bar;type=private"),
                         new URI("pkcs11:object=foo-bar;type=cert")));
-        assertThat(e.getMessage(), containsString("Private key or certificate with label foo-bar does not exist"));
+        assertThat(e.getMessage(),
+                containsString("Certificate with label foo-bar does not exist, or no private key on the token has the "
+                        + "same CKA_ID as it"));
     }
 
     @Test
@@ -405,6 +476,39 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
     }
 
     @Test
+    void GIVEN_key_and_cert_with_different_labels_WHEN_build_mqtt_connection_THEN_succeed() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        try (AwsIotMqttConnectionBuilder builder =
+                     service.getMqttConnectionBuilder(SEPARATE_LABEL_KEY_URI, SEPARATE_LABEL_CERT_URI);
+             MqttClientConnection connection = buildMqttConnection(builder)) {
+            assertThat(connection, IsNull.notNullValue());
+        }
+    }
+
+    @Test
+    void GIVEN_key_label_not_existed_WHEN_build_mqtt_connection_THEN_throw_exception() throws Exception {
+        startServiceExpectRunning();
+        PKCS11CryptoKeyService service =
+                (PKCS11CryptoKeyService) kernel.locate(PKCS11CryptoKeyService.PKCS11_SERVICE_NAME);
+        // The certificate lookup doesn't use the key label, so only CRT can catch a wrong key label
+        try (AwsIotMqttConnectionBuilder builder = service.getMqttConnectionBuilder(
+                URI.create("pkcs11:object=absent-key;type=private"), SEPARATE_LABEL_CERT_URI)) {
+            assertThrows(CrtRuntimeException.class, () -> buildMqttConnection(builder).close());
+        }
+    }
+
+    // build() creates the TLS context, which is where CRT finds the private key on the token by its label
+    private static MqttClientConnection buildMqttConnection(AwsIotMqttConnectionBuilder builder) {
+        try (EventLoopGroup eventLoopGroup = new EventLoopGroup(1);
+             HostResolver hostResolver = new HostResolver(eventLoopGroup);
+             ClientBootstrap clientBootstrap = new ClientBootstrap(eventLoopGroup, hostResolver)) {
+            return builder.withBootstrap(clientBootstrap).withEndpoint("localhost").withClientId("test").build();
+        }
+    }
+
+    @Test
     void GIVEN_cert_uri_invalid_scheme_WHEN_get_mqtt_builder_THEN_throw_exception(ExtensionContext context) throws Exception {
         ignoreExceptionUltimateCauseOfType(context, IllegalArgumentException.class);
         startServiceExpectRunning();
@@ -424,8 +528,10 @@ class PKCS11CryptoKeyServiceIntegrationTest extends BaseITCase {
         Exception e = assertThrows(MqttConnectionProviderException.class,
                 () -> service.getMqttConnectionBuilder(URI.create("pkcs11:object=absent_key;type=private"),
                         URI.create("pkcs11:object=absent_key;type=cert")));
-        assertThat(e.getMessage(), containsString("Private key or certificate with label absent_key does not exist"));
-        assertThat(e.getMessage(), containsString("Make sure to import both private key and the certificate "
-                + "into PKCS11 device with the same label and id."));
+        assertThat(e.getMessage(),
+                containsString("Certificate with label absent_key does not exist, or no private key on the token "
+                        + "has the same CKA_ID as it"));
+        assertThat(e.getMessage(),
+                containsString("Make sure the private key and the certificate are imported with the same id."));
     }
 }

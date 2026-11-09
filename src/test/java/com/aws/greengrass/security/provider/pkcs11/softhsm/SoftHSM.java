@@ -13,6 +13,9 @@ import com.aws.greengrass.util.platforms.Platform;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
 import org.apache.commons.io.filefilter.IOFileFilter;
+import sun.security.pkcs11.wrapper.CK_ATTRIBUTE;
+import sun.security.pkcs11.wrapper.PKCS11;
+import sun.security.pkcs11.wrapper.PKCS11Exception;
 
 import java.io.File;
 import java.io.IOException;
@@ -36,7 +39,17 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKA_CLASS;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKA_ID;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKA_LABEL;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKF_RW_SESSION;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKF_SERIAL_SESSION;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKO_PRIVATE_KEY;
+import static sun.security.pkcs11.wrapper.PKCS11Constants.CKU_USER;
+
 public class SoftHSM {
+    // Defined locally because JDK 17 moved it from PKCS11Constants to PKCS11Exception
+    private static final long CKR_USER_ALREADY_LOGGED_IN = 0x00000100L;
     private static final String SOFTHSM_TOKEN_DIRECTORY;
     private static final List<String> SOFTHSM_INSTALL_DIRECTORY;
     private static final String SOFTHSM_SHARED_LIBRARY_FILE_NAME = "libsofthsm2.so";
@@ -99,6 +112,36 @@ public class SoftHSM {
         KeyStore ks = KeyStore.getInstance("PKCS11", provider);
         ks.load(null, token.getUserPin().toCharArray());
         ks.setKeyEntry(keyLabel, pKey, token.getUserPin().toCharArray(), certChain);
+    }
+
+    /**
+     * Set the label of a private key imported by {@link #importPrivateKey}, so that it keeps its certificate's
+     * CKA_ID but not its CKA_LABEL, like the objects that YubiKey's PKCS11 library exposes. SunPKCS11 sets
+     * CKA_ID to the alias on both objects, but sets CKA_LABEL only on the certificate.
+     */
+    public void setPrivateKeyLabel(String keyId, String label, HSMToken token) throws IOException, PKCS11Exception {
+        PKCS11 pkcs11 = PKCS11.getInstance(sharedLibraryPath.toString(), "C_GetFunctionList", null, false);
+        long session = pkcs11.C_OpenSession(token.getSlotId(), CKF_SERIAL_SESSION | CKF_RW_SESSION, null, null);
+        try {
+            try {
+                pkcs11.C_Login(session, CKU_USER, token.getUserPin().toCharArray());
+            } catch (PKCS11Exception e) {
+                if (e.getErrorCode() != CKR_USER_ALREADY_LOGGED_IN) {
+                    throw e;
+                }
+            }
+            pkcs11.C_FindObjectsInit(session, new CK_ATTRIBUTE[]{new CK_ATTRIBUTE(CKA_CLASS, CKO_PRIVATE_KEY),
+                    new CK_ATTRIBUTE(CKA_ID, keyId)});
+            long[] handles = pkcs11.C_FindObjects(session, 2);
+            pkcs11.C_FindObjectsFinal(session);
+            if (handles.length != 1) {
+                throw new IllegalStateException(String.format("Expected one private key with id %s, found %d",
+                        keyId, handles.length));
+            }
+            pkcs11.C_SetAttributeValue(session, handles[0], new CK_ATTRIBUTE[]{new CK_ATTRIBUTE(CKA_LABEL, label)});
+        } finally {
+            pkcs11.C_CloseSession(session);
+        }
     }
 
     public boolean containKey(String keyLabel, HSMToken token)

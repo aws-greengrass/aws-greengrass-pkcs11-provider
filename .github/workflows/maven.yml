@@ -35,7 +35,7 @@ jobs:
         env:
           AWS_REGION: us-west-2
         run: |
-          sudo -E mvn -ntp -U clean verify
+          sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" "AWS_REGION=$AWS_REGION" mvn -ntp -U clean verify
           sudo chown -R runner target
       - name: Upload Failed Test Report
         uses: actions/upload-artifact@v5

@@ -303,8 +303,10 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             throws ServiceUnavailableException, KeyLoadingException {
         checkServiceAvailability();
 
+        validatePrivateKeyUri(privateKeyUri);
+        String certLabel = validateCertificateUri(certificateUri).getLabel();
         try {
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
+            KeyStore ks = getKeyStore(certLabel);
 
             KeyManagerFactory keyManagerFactory =
                     KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
@@ -318,26 +320,21 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         }
     }
 
-    private KeyStore getKeyStore(URI privateKeyUri, URI certificateUri) throws KeyLoadingException {
-        Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
-        validateCertificateUri(certificateUri, keyUri);
-
-        String keyLabel = keyUri.getLabel();
+    // SunPKCS11 pairs a private key with its certificate by CKA_ID and names the entry after the cert label
+    private KeyStore getKeyStore(String certLabel) throws KeyLoadingException {
         char[] password = userPin;
         try {
-            KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), PKCS11_TYPE, keyLabel);
+            KeyStore ks = SingleKeyStore.getInstance(getPkcs11Provider(), PKCS11_TYPE, certLabel);
             ks.load(null, password);
-            if (!ks.containsAlias(keyLabel)) {
-                throw new KeyLoadingException(String.format("Private key or certificate with label %s does not exist. "
-                        + "Make sure to import both private key and the certificate into PKCS11 device "
-                        + "with the same label and id.", keyLabel));
+            if (!ks.containsAlias(certLabel)) {
+                throw new KeyLoadingException(String.format("Certificate with label %s does not exist, or no private "
+                        + "key on the token has the same CKA_ID as it. Make sure the private key and the certificate "
+                        + "are imported with the same id.", certLabel));
             }
-            logger.atDebug().log(String.format("Successfully loaded KeyStore with private key %s", keyLabel));
+            logger.atDebug().log(String.format("Successfully loaded KeyStore for certificate %s", certLabel));
             return ks;
         } catch (GeneralSecurityException | IOException e) {
-            throw new KeyLoadingException(
-                    String.format("Failed to get key store for key %s and certificate %s", privateKeyUri,
-                            certificateUri), e);
+            throw new KeyLoadingException(String.format("Failed to get key store for certificate %s", certLabel), e);
         }
     }
 
@@ -346,19 +343,19 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             ServiceUnavailableException, KeyLoadingException {
         checkServiceAvailability();
 
-        Pkcs11URI keyUri = validatePrivateKeyUri(privateKeyUri);
-
-        String keyLabel = keyUri.getLabel();
+        String keyLabel = validatePrivateKeyUri(privateKeyUri).getLabel();
+        String certLabel = validateCertificateUri(certificateUri).getLabel();
         char[] password = userPin;
         try {
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
-            Key pk = ks.getKey(keyLabel, password);
+            KeyStore ks = getKeyStore(certLabel);
+            Key pk = ks.getKey(certLabel, password);
             if (!(pk instanceof PrivateKey)) {
-                throw new KeyLoadingException(String.format("Key %s is not a private key", keyLabel));
+                throw new KeyLoadingException(String.format(
+                        "No private key paired with certificate %s (private key label %s)", certLabel, keyLabel));
             }
             // We cannot easily extract the public key from PKCS11, so instead we will get it from the
             // certificate. The certificate *must* be signed by the private key for this to work correctly.
-            Certificate cert = getCertificateFromKeyStore(ks, keyLabel);
+            Certificate cert = getCertificateFromKeyStore(ks, certLabel);
 
             return new KeyPair(cert.getPublicKey(), (PrivateKey) pk);
         } catch (GeneralSecurityException e) {
@@ -378,8 +375,15 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         String certificateContent;
         try {
             keyUri = validatePrivateKeyUri(privateKeyUri);
-            KeyStore ks = getKeyStore(privateKeyUri, certificateUri);
-            X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, keyUri.getLabel());
+            String certLabel = validateCertificateUri(certificateUri).getLabel();
+            KeyStore ks = getKeyStore(certLabel);
+            if (!keyUri.getLabel().equals(certLabel)) {
+                // CRT finds the private key by its label, while the certificate is paired with a key by CKA_ID
+                logger.atInfo().kv("privateKeyLabel", keyUri.getLabel()).kv("certificateLabel", certLabel)
+                        .log("Private key and certificate labels differ. They must refer to objects with the same "
+                                + "CKA_ID, or the MQTT TLS handshake will fail");
+            }
+            X509Certificate certificate = (X509Certificate) getCertificateFromKeyStore(ks, certLabel);
             certificateContent = getX509CertificateContentString(certificate);
         } catch (KeyLoadingException | KeyStoreException | CertificateEncodingException e) {
             logger.atError().log(getErrorMessageForRootCause(e));
@@ -412,7 +416,7 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
         return keyUri;
     }
 
-    private Pkcs11URI validateCertificateUri(URI certUri, Pkcs11URI keyUri) throws KeyLoadingException {
+    private Pkcs11URI validateCertificateUri(URI certUri) throws KeyLoadingException {
         Pkcs11URI certPkcs11Uri;
         try {
             certPkcs11Uri = new Pkcs11URI(certUri);
@@ -423,8 +427,8 @@ public class PKCS11CryptoKeyService extends PluginService implements CryptoKeySp
             throw new KeyLoadingException(String.format("Certificate must be a PKCS11 %s type, but was %s",
                     PKCS11_TYPE_CERT, certPkcs11Uri.getType()));
         }
-        if (!keyUri.getLabel().equals(certPkcs11Uri.getLabel())) {
-            throw new KeyLoadingException("Private key and certificate labels must be the same");
+        if (Utils.isEmpty(certPkcs11Uri.getLabel())) {
+            throw new KeyLoadingException("Empty certificate label in certificate URI");
         }
         return certPkcs11Uri;
     }
